@@ -1,0 +1,145 @@
+/* ── Reset ──────────────────────────────────── */
+*, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+body {
+  overflow: hidden;
+  background: #1a1a2e;
+  font-family: 'Segoe UI', system-ui, sans-serif;
+}
+
+canvas { display: block; }
+
+/* ── Overlay ─────────────────────────────────── */
+#ui-overlay {
+  position: absolute;
+  top: 16px;
+  left: 16px;
+  background: rgba(0, 0, 0, 0.72);
+  backdrop-filter: blur(8px);
+  color: #dde3f0;
+  padding: 16px;
+  border-radius: 12px;
+  border: 1px solid rgba(255,255,255,0.08);
+  min-width: 220px;
+  user-select: none;
+}
+
+/* ── Status row ──────────────────────────────── */
+#status-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-bottom: 14px;
+  font-size: 12px;
+}
+
+.dot {
+  width: 8px; height: 8px;
+  border-radius: 50%;
+  flex-shrink: 0;
+  transition: background 0.3s, box-shadow 0.3s;
+}
+.dot.connected    { background: #00e676; box-shadow: 0 0 6px #00e676; }
+.dot.disconnected { background: #ff5252; }
+.dot.reconnecting { background: #ffb300; box-shadow: 0 0 6px #ffb300; }
+.dot.loading      { background: #40c4ff; box-shadow: 0 0 6px #40c4ff; }
+
+/* ── Section labels ──────────────────────────── */
+.section-label {
+  display: block;
+  font-size: 9px;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+  color: #606880;
+  margin-bottom: 6px;
+}
+
+/* ── Drop zone ───────────────────────────────── */
+.drop-zone {
+  position: relative;
+  border: 1.5px dashed rgba(255,255,255,0.15);
+  border-radius: 8px;
+  padding: 10px 8px;
+  text-align: center;
+  font-size: 11px;
+  color: #606880;
+  cursor: pointer;
+  transition: border-color 0.2s, background 0.2s;
+  margin-bottom: 8px;
+  overflow: hidden;
+}
+.drop-zone:hover,
+.drop-zone.over {
+  border-color: #40c4ff;
+  background: rgba(64, 196, 255, 0.06);
+  color: #40c4ff;
+}
+.drop-zone.loaded {
+  border-color: #00e676;
+  background: rgba(0, 230, 118, 0.06);
+  color: #00e676;
+}
+.drop-zone input[type="file"] {
+  position: absolute;
+  inset: 0;
+  opacity: 0;
+  cursor: pointer;
+}
+
+/* ── Anim name ───────────────────────────────── */
+.anim-name {
+  font-size: 11px;
+  color: #40c4ff;
+  text-align: center;
+  margin-bottom: 8px;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+/* ── Button row ──────────────────────────────── */
+.btn-row {
+  display: flex;
+  gap: 6px;
+  justify-content: center;
+  margin-bottom: 8px;
+}
+
+button {
+  background: rgba(255,255,255,0.06);
+  border: 1px solid rgba(255,255,255,0.12);
+  color: #dde3f0;
+  border-radius: 6px;
+  padding: 5px 12px;
+  font-size: 13px;
+  cursor: pointer;
+  transition: background 0.15s, border-color 0.15s;
+}
+button:hover:not(:disabled) {
+  background: rgba(64,196,255,0.15);
+  border-color: #40c4ff;
+  color: #40c4ff;
+}
+button:disabled {
+  opacity: 0.3;
+  cursor: default;
+}
+
+/* ── Speed slider ────────────────────────────── */
+input[type="range"] {
+  -webkit-appearance: none;
+  width: 100%;
+  height: 3px;
+  background: rgba(255,255,255,0.12);
+  border-radius: 99px;
+  outline: none;
+  cursor: pointer;
+}
+input[type="range"]:disabled { opacity: 0.3; cursor: default; }
+input[type="range"]::-webkit-slider-thumb {
+  -webkit-appearance: none;
+  width: 12px; height: 12px;
+  border-radius: 50%;
+  background: #40c4ff;
+  cursor: pointer;
+}

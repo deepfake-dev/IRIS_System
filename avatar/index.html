@@ -1,0 +1,55 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8"/>
+  <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+  <meta http-equiv="Content-Security-Policy"
+        content="default-src 'self';
+                 script-src 'self' https://cdn.jsdelivr.net 'unsafe-inline';
+                 connect-src 'self' ws://localhost:8080 wss://localhost:8443;
+                 img-src 'self' data: blob:;
+                 style-src 'self' 'unsafe-inline';">
+  <title>IRIS Avatar</title>
+  <link rel="stylesheet" href="css/style.css"/>
+</head>
+<body>
+
+  <!-- ── UI Overlay ───────────────────────────── -->
+  <div id="ui-overlay">
+    <div id="status-row">
+      <span id="status-dot" class="dot disconnected"></span>
+      <span id="status-text">Initialising...</span>
+    </div>
+
+    <!-- FBX animation loader -->
+    <div id="anim-section">
+      <label class="section-label">ANIMATION</label>
+      <div class="drop-zone" id="dz-fbx">
+        <input type="file" id="input-fbx" accept=".fbx"/>
+        <span>Drop Mixamo .fbx or click</span>
+      </div>
+      <div id="anim-name" class="anim-name">—</div>
+      <div class="btn-row">
+        <button id="btn-play"  disabled>▶</button>
+        <button id="btn-pause" disabled>⏸</button>
+        <button id="btn-stop"  disabled>⏹</button>
+      </div>
+      <label class="section-label" style="margin-top:10px">SPEED</label>
+      <input type="range" id="range-speed" min="0.1" max="3" step="0.05" value="1" disabled/>
+    </div>
+  </div>
+
+  <!-- ── Import Map ───────────────────────────── -->
+  <script type="importmap">
+  {
+    "imports": {
+      "three":               "https://cdn.jsdelivr.net/npm/three@0.169.0/build/three.module.js",
+      "three/addons/":       "https://cdn.jsdelivr.net/npm/three@0.169.0/examples/jsm/",
+      "@pixiv/three-vrm":    "https://cdn.jsdelivr.net/npm/@pixiv/three-vrm@3.0.0/lib/three-vrm.module.js"
+    }
+  }
+  </script>
+
+  <script type="module" src="js/main.js"></script>
+</body>
+</html>
