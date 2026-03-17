@@ -1,4 +1,4 @@
---index-url https://download.pytorch.org/whl/cu126
+--extra-index-url https://download.pytorch.org/whl/cu126
 c2pa-python
 ctranslate2
 decord
