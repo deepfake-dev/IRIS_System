@@ -1,0 +1,943 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Campus AI Assistant</title>
+<meta http-equiv="Content-Security-Policy"
+      content="default-src 'self';
+               script-src 'self' https://cdn.jsdelivr.net https://fonts.googleapis.com 'unsafe-inline';
+               style-src  'self' https://fonts.googleapis.com https://fonts.gstatic.com 'unsafe-inline';
+               font-src   https://fonts.gstatic.com;
+               connect-src 'self' blob: ws://localhost:8080 wss://localhost:8443;
+               img-src 'self' data: blob:;
+               worker-src blob:;">
+<link href="https://fonts.googleapis.com/css2?family=Playfair+Display:wght@600;700&family=DM+Sans:wght@300;400;500;600&family=DM+Mono:wght@400;500&display=swap" rel="stylesheet">
+<link rel="icon" type="image/png" href="./icon.png">
+<style>
+  :root {
+    --peach:       #ffd4c4;
+    --pink:        #ffb5e2;
+    --violet:      #ce70e8;
+    --purple:      #a347e5;
+    --indigo:      #6a39ff;
+    --accent:            var(--purple);
+    --accent-light:      var(--violet);
+    --accent-pale:       rgba(163,71,229,0.08);
+    --accent-border:     rgba(163,71,229,0.30);
+    --accent-border-dim: rgba(163,71,229,0.15);
+    --cta:               var(--indigo);
+    --cta-glow:          rgba(106,57,255,0.35);
+    --dark:         #0e0b16;
+    --surface:      rgba(255,255,255,0.03);
+    --border:       rgba(255,255,255,0.09);
+    --text:         #f0f0f5;
+    --text-dim:     rgba(240,240,245,0.55);
+    --text-dimmer:  rgba(240,240,245,0.28);
+    --white:        #ffffff;
+  }
+
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+
+  html, body {
+    width: 100%; height: 100%;
+    background: var(--dark);
+    color: var(--text);
+    font-family: 'DM Sans', sans-serif;
+    overflow: hidden;
+    -webkit-font-smoothing: antialiased;
+  }
+
+  /* ── Background ── */
+  .bg {
+    position: fixed; inset: 0; z-index: 0;
+    background: radial-gradient(ellipse at 20% 80%, rgba(106,57,255,0.18) 0%, transparent 55%),
+                radial-gradient(ellipse at 80% 20%, rgba(206,112,232,0.12) 0%, transparent 50%),
+                var(--dark);
+  }
+  .bg-overlay {
+    position: fixed; inset: 0; z-index: 1;
+    background: linear-gradient(160deg,
+      rgba(14,11,22,0.80) 0%,
+      rgba(10,8,18,0.85) 50%,
+      rgba(14,11,22,0.80) 100%);
+  }
+
+  /* ── Layout ── */
+  .kiosk {
+    position: relative; z-index: 10;
+    width: 100vw; height: 100vh;
+    display: flex; flex-direction: column;
+    align-items: center;
+  }
+
+  /* ── Top bar ── */
+  .topbar {
+    width: 100%;
+    padding: 22px 48px;
+    display: flex; align-items: center; justify-content: space-between;
+    border-bottom: 1px solid var(--border);
+    background: rgba(10,8,18,0.60);
+    backdrop-filter: blur(20px);
+    flex-shrink: 0;
+  }
+  .topbar-left { display: flex; align-items: center; gap: 16px; }
+  .school-seal {
+    width: 46px; height: 46px; border-radius: 50%;
+    border: 2px solid var(--accent-border);
+    background: radial-gradient(circle, rgba(163,71,229,0.18), rgba(10,8,18,0.8));
+    display: flex; align-items: center; justify-content: center;
+    /* remove font-family, font-size, font-weight, color — no longer needed */
+  }
+  .school-name {
+    font-family: 'Playfair Display', serif;
+    font-size: 17px; font-weight: 600; color: var(--white);
+    letter-spacing: 0.3px; line-height: 1.2;
+  }
+  .school-tagline {
+    font-size: 10px; color: var(--text-dimmer);
+    letter-spacing: 2px; text-transform: uppercase; margin-top: 2px;
+  }
+  .topbar-center { display: flex; align-items: center; gap: 8px; }
+  .status-pill {
+    display: flex; align-items: center; gap: 7px;
+    padding: 6px 14px;
+    border: 1px solid rgba(0,200,100,0.25);
+    border-radius: 20px;
+    background: rgba(0,200,100,0.06);
+    font-size: 11px; letter-spacing: 1.5px;
+    color: rgba(0,220,110,0.8);
+    font-family: 'DM Mono', monospace;
+    text-transform: uppercase;
+  }
+  .status-dot {
+    width: 6px; height: 6px; border-radius: 50%;
+    background: #00dc6e; box-shadow: 0 0 6px #00dc6e;
+    animation: pulse-dot 2s ease-in-out infinite;
+  }
+  .topbar-right {
+    text-align: right;
+    font-family: 'DM Mono', monospace;
+    font-size: 12px; color: var(--text-dimmer);
+    letter-spacing: 1px; line-height: 1.8;
+  }
+  .topbar-right .clock { font-size: 18px; color: var(--text-dim); }
+
+  /* ── Main body ── */
+  .main {
+    flex: 1; width: 100%;
+    display: flex; align-items: stretch;
+    overflow: hidden;
+  }
+
+  /* ── Avatar column ── */
+  .avatar-col {
+    width: 340px; flex-shrink: 0;
+    display: flex; flex-direction: column;
+    align-items: center; justify-content: flex-end;
+    position: relative; overflow: hidden;
+  }
+
+  /* Ambient glow behind the canvas */
+  .avatar-glow {
+    position: absolute; bottom: 0; left: 50%; transform: translateX(-50%);
+    width: 340px; height: 500px;
+    background: radial-gradient(ellipse at bottom, rgba(106,57,255,0.28) 0%, transparent 65%);
+    pointer-events: none; z-index: 1;
+  }
+
+  /* Orbit rings */
+  .orbit-ring {
+    position: absolute; border-radius: 50%;
+    border: 1px solid rgba(163,71,229,0.15);
+    animation: orbit-spin linear infinite;
+    pointer-events: none; z-index: 0;
+  }
+  .orbit-1 { width: 280px; height: 280px; bottom: 120px; left: 50%; transform: translateX(-50%) rotate(0deg); animation-duration: 14s; }
+  .orbit-2 { width: 340px; height: 340px; bottom: 90px;  left: 50%; transform: translateX(-50%); animation-duration: 22s; animation-direction: reverse; border-color: rgba(106,57,255,0.08); }
+
+  /* Three.js canvas fills the column */
+  #vrm-canvas {
+    position: absolute;
+    inset: 0;
+    width: 100% !important;
+    height: 100% !important;
+    z-index: 2;
+    display: block;
+  }
+
+  /* Loading indicator over the canvas */
+  #vrm-loading {
+    position: absolute; inset: 0; z-index: 3;
+    display: flex; flex-direction: column;
+    align-items: center; justify-content: center; gap: 10px;
+    pointer-events: none;
+  }
+  .vrm-spinner {
+    width: 32px; height: 32px; border-radius: 50%;
+    border: 2px solid rgba(163,71,229,0.15);
+    border-top-color: var(--violet);
+    animation: spin 0.9s linear infinite;
+  }
+  .vrm-loading-text {
+    font-family: 'DM Mono', monospace;
+    font-size: 10px; letter-spacing: 2px;
+    color: var(--text-dimmer); text-transform: uppercase;
+  }
+
+  /* ── Conversation column ── */
+  .conv-col {
+    flex: 1; display: flex; flex-direction: column;
+    padding: 32px 40px 32px 0;
+    gap: 20px; overflow: hidden;
+  }
+
+  /* Speech bubble */
+  .bubble-section { flex: 1; display: flex; flex-direction: column; gap: 16px; overflow: hidden; }
+  .bubble-label {
+    font-size: 10px; letter-spacing: 2.5px; text-transform: uppercase;
+    color: var(--text-dimmer); font-family: 'DM Mono', monospace; padding-left: 2px;
+  }
+  .speech-bubble {
+    flex: 1;
+    background: rgba(14,11,22,0.78);
+    border: 1px solid var(--border);
+    border-radius: 20px; padding: 28px 32px;
+    backdrop-filter: blur(30px);
+    position: relative; overflow: hidden;
+    display: flex; flex-direction: column;
+    box-shadow: 0 24px 60px rgba(0,0,0,0.40), inset 0 1px 0 rgba(255,255,255,0.04);
+  }
+  .speech-bubble::before {
+    content: ''; position: absolute; top: 0; left: 0; right: 0; height: 1px;
+    background: linear-gradient(90deg, transparent, rgba(163,71,229,0.55), transparent);
+  }
+  .speech-bubble::after {
+    content: ''; position: absolute; top: 20px; left: 0; bottom: 20px; width: 3px;
+    background: linear-gradient(180deg, transparent, var(--violet), transparent);
+    border-radius: 0 2px 2px 0; opacity: 0.6;
+  }
+  .bubble-ai-header {
+    display: flex; align-items: center; gap: 12px;
+    margin-bottom: 18px; padding-bottom: 14px; border-bottom: 1px solid var(--border);
+  }
+  .ai-avatar-pill {
+    width: 34px; height: 34px; border-radius: 10px;
+    background: linear-gradient(135deg, var(--purple), var(--indigo));
+    display: flex; align-items: center; justify-content: center;
+    box-shadow: 0 0 16px rgba(163,71,229,0.4);
+    font-family: 'Playfair Display', serif;
+    font-weight: 700; font-size: 13px; color: white;
+  }
+  .ai-title-wrap { flex: 1; }
+  .ai-name   { font-weight: 600; font-size: 14px; color: var(--white); letter-spacing: 0.3px; }
+  .ai-subtitle { font-size: 10px; color: var(--text-dimmer); letter-spacing: 1.5px; text-transform: uppercase; margin-top: 1px; }
+  .typing-indicator {
+    display: flex; align-items: center; gap: 5px;
+    padding: 6px 12px;
+    background: rgba(163,71,229,0.08);
+    border: 1px solid rgba(163,71,229,0.18);
+    border-radius: 20px;
+  }
+  .typing-indicator span { font-size: 10px; color: var(--violet); letter-spacing: 1px; font-family: 'DM Mono'; }
+  .t-dot {
+    width: 4px; height: 4px; border-radius: 50%;
+    background: var(--violet);
+    animation: tdot 1.2s ease-in-out infinite;
+  }
+  .t-dot:nth-child(2) { animation-delay: 0.2s; }
+  .t-dot:nth-child(3) { animation-delay: 0.4s; }
+  .bubble-body {
+    flex: 1; font-size: 16px; line-height: 1.75;
+    font-weight: 300; color: rgba(240,240,245,0.90);
+    letter-spacing: 0.2px; overflow-y: auto;
+  }
+  .bubble-body::-webkit-scrollbar { width: 3px; }
+  .bubble-body::-webkit-scrollbar-thumb { background: var(--accent-border); border-radius: 3px; }
+  .cursor {
+    display: inline-block; width: 2px; height: 16px;
+    background: var(--violet); margin-left: 2px; vertical-align: middle;
+    animation: blink-cur 0.8s step-end infinite;
+  }
+  .bubble-meta {
+    margin-top: 16px; padding-top: 12px; border-top: 1px solid var(--border);
+    display: flex; align-items: center; justify-content: space-between;
+  }
+  .meta-tags { display: flex; gap: 6px; }
+  .meta-tag {
+    padding: 3px 10px; border: 1px solid var(--border); border-radius: 4px;
+    font-size: 9px; letter-spacing: 1.5px; color: var(--text-dimmer);
+    text-transform: uppercase; font-family: 'DM Mono';
+  }
+
+  /* ── Quick actions ── */
+  .quick-section { flex-shrink: 0; }
+  .qs-label {
+    font-size: 10px; letter-spacing: 2.5px; text-transform: uppercase;
+    color: var(--text-dimmer); font-family: 'DM Mono', monospace;
+    margin-bottom: 10px; padding-left: 2px;
+  }
+  .quick-grid { display: grid; grid-template-columns: repeat(4, 1fr); gap: 8px; }
+  .q-btn {
+    padding: 12px 10px;
+    border: 1px solid var(--border);
+    border-radius: 10px;
+    background: rgba(255,255,255,0.02);
+    color: var(--text-dim);
+    font-family: 'DM Sans', sans-serif;
+    font-size: 12px; font-weight: 500;
+    cursor: pointer; transition: all 0.18s;
+    text-align: center; line-height: 1.4; letter-spacing: 0.2px;
+  }
+  .q-btn:hover, .q-btn:active {
+    border-color: var(--accent-border);
+    background: var(--accent-pale);
+    color: var(--white);
+    box-shadow: 0 0 16px rgba(163,71,229,0.14);
+  }
+  .q-btn .q-icon { font-size: 16px; display: block; margin-bottom: 4px; }
+
+  /* ── Input section ── */
+  .input-section { flex-shrink: 0; }
+  .input-wrap {
+    display: flex; align-items: center; gap: 10px;
+    background: rgba(14,11,22,0.78);
+    border: 1px solid var(--border);
+    border-radius: 14px; padding: 8px 8px 8px 20px;
+    backdrop-filter: blur(20px);
+    transition: border-color 0.2s, box-shadow 0.2s;
+  }
+  .input-wrap:focus-within {
+    border-color: rgba(163,71,229,0.42);
+    box-shadow: 0 0 24px rgba(163,71,229,0.12);
+  }
+  .text-input {
+    flex: 1; background: none; border: none; outline: none;
+    color: var(--text); font-family: 'DM Sans', sans-serif;
+    font-size: 15px; font-weight: 300; letter-spacing: 0.2px;
+  }
+  .text-input::placeholder { color: var(--text-dimmer); }
+  .mic-btn {
+    width: 46px; height: 46px; border-radius: 10px;
+    border: 1px solid var(--border);
+    background: rgba(255,255,255,0.03);
+    display: flex; align-items: center; justify-content: center;
+    cursor: pointer; transition: all 0.18s; flex-shrink: 0;
+  }
+  .mic-btn:hover { border-color: var(--accent-border); background: var(--accent-pale); }
+  .mic-btn.active { border-color: var(--violet); background: rgba(163,71,229,0.18); box-shadow: 0 0 20px rgba(163,71,229,0.28); }
+  .mic-btn svg { width: 18px; height: 18px; }
+  .send-btn {
+    width: 46px; height: 46px; border-radius: 10px; border: none;
+    background: linear-gradient(135deg, var(--purple), var(--indigo));
+    display: flex; align-items: center; justify-content: center;
+    cursor: pointer; transition: all 0.18s;
+    box-shadow: 0 4px 20px var(--cta-glow); flex-shrink: 0;
+  }
+  .send-btn:hover { transform: scale(1.05); box-shadow: 0 6px 28px rgba(106,57,255,0.50); }
+  .send-btn svg { width: 18px; height: 18px; fill: white; }
+  .voice-vis { display: none; align-items: center; gap: 3px; padding: 0 8px; }
+  .v-bar {
+    width: 3px; border-radius: 3px;
+    background: var(--violet);
+    box-shadow: 0 0 5px rgba(163,71,229,0.55);
+    animation: v-wave 0.7s ease-in-out infinite;
+  }
+  .v-bar:nth-child(1) { height: 8px; }
+  .v-bar:nth-child(2) { height: 18px; animation-delay: 0.1s; }
+  .v-bar:nth-child(3) { height: 26px; animation-delay: 0.2s; }
+  .v-bar:nth-child(4) { height: 18px; animation-delay: 0.15s; }
+  .v-bar:nth-child(5) { height: 10px; animation-delay: 0.05s; }
+
+  /* ── Bottom bar ── */
+  .bottombar {
+    width: 100%; flex-shrink: 0;
+    padding: 12px 48px;
+    border-top: 1px solid var(--border);
+    background: rgba(10,8,18,0.50);
+    backdrop-filter: blur(20px);
+    display: flex; align-items: center; justify-content: space-between;
+  }
+  .bb-left  { font-size: 11px; color: var(--text-dimmer); letter-spacing: 1px; font-family: 'DM Mono'; }
+  .bb-left strong { color: var(--text-dim); }
+  .bb-center { display: flex; gap: 6px; }
+  .lang-btn {
+    padding: 4px 12px;
+    border: 1px solid var(--border); border-radius: 4px;
+    font-size: 10px; letter-spacing: 1px; color: var(--text-dimmer);
+    background: transparent; cursor: pointer; font-family: 'DM Mono'; transition: all 0.15s;
+  }
+  .lang-btn.active, .lang-btn:hover {
+    border-color: var(--accent-border); color: var(--violet); background: var(--accent-pale);
+  }
+  .bb-right { font-size: 11px; color: var(--text-dimmer); font-family: 'DM Mono'; letter-spacing: 1px; }
+  .bb-right strong { color: var(--text-dim); }
+
+  /* ── Animations ── */
+  @keyframes pulse-dot   { 0%,100%{opacity:1;} 50%{opacity:0.4;} }
+  @keyframes orbit-spin  { from{transform:translateX(-50%) rotate(0deg);} to{transform:translateX(-50%) rotate(360deg);} }
+  @keyframes tdot        { 0%,100%{transform:translateY(0);opacity:.4;} 50%{transform:translateY(-4px);opacity:1;} }
+  @keyframes blink-cur   { 0%,100%{opacity:1;} 50%{opacity:0;} }
+  @keyframes v-wave      { 0%,100%{transform:scaleY(.5);opacity:.5;} 50%{transform:scaleY(1.4);opacity:1;} }
+  @keyframes spin        { to { transform: rotate(360deg); } }
+</style>
+</head>
+<body>
+
+<div class="bg"></div>
+<div class="bg-overlay"></div>
+
+<div class="kiosk">
+
+  <!-- TOP BAR -->
+  <div class="topbar">
+    <div class="topbar-left">
+      <div class="school-seal">
+        <img src="./logo.png" style="width:32px; height:32px; border-radius:50%; object-fit:cover;"/>
+      </div>
+      <div style="width:1px; height:32px; background:var(--border); flex-shrink:0;"></div>
+      <div class="school-seal">
+        <img src="./icon.png" style="width:32px; height:32px; border-radius:50%; object-fit:cover;"/>
+      </div>
+      <div>
+        <div class="school-name">IRIS</div>
+        <div class="school-tagline">Intelligent Retrieval-Augmented Institutional Support Bot</div>
+      </div>
+    </div>
+    <div class="topbar-center">
+      <div class="status-pill">
+        <div class="status-dot"></div>
+        Online
+      </div>
+    </div>
+    <div class="topbar-right">
+      <div class="clock" id="clock">--:--</div>
+      <div id="date-display">---</div>
+    </div>
+  </div>
+
+  <!-- MAIN -->
+  <div class="main">
+
+    <!-- AVATAR — Three.js VRM replaces the CSS robot -->
+    <div class="avatar-col">
+      <div class="orbit-ring orbit-1"></div>
+      <div class="orbit-ring orbit-2"></div>
+      <div class="avatar-glow"></div>
+
+      <!-- Three.js renders here -->
+      <canvas id="vrm-canvas"></canvas>
+
+      <!-- Shown while VRM loads -->
+      <div id="vrm-loading">
+        <div class="vrm-spinner"></div>
+        <div class="vrm-loading-text">Loading model…</div>
+      </div>
+    </div>
+
+    <!-- CONVERSATION -->
+    <div class="conv-col">
+
+      <div class="bubble-section">
+        <div class="bubble-label">Iris</div>
+        <div class="speech-bubble">
+          <div class="bubble-ai-header">
+            <div class="ai-avatar-pill">A</div>
+            <div class="ai-title-wrap">
+              <div class="ai-name">Iris</div>
+              <div class="ai-subtitle">Hello Red Spartans!</div>
+            </div>
+            <div class="typing-indicator" id="typingInd" style="display:none">
+              <div class="t-dot"></div>
+              <div class="t-dot"></div>
+              <div class="t-dot"></div>
+              <span>Processing</span>
+            </div>
+          </div>
+          <div class="bubble-body" id="aiText"></div>
+          <div class="bubble-meta">
+            <div class="meta-tags">
+              <span class="meta-tag">Verified</span>
+              <span class="meta-tag" id="topicTag">General</span>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <!-- Quick actions -->
+      <div class="quick-section">
+        <div class="qs-label">Frequently Asked</div>
+        <div class="quick-grid">
+          <button class="q-btn" onclick="ask('What are the steps for enrollment and registration?')">
+            <span class="q-icon">📋</span>Enrollment
+          </button>
+          <button class="q-btn" onclick="ask('How do I get to the Registrar\'s Office?')">
+            <span class="q-icon">🗺️</span>Campus Directions
+          </button>
+          <button class="q-btn" onclick="ask('What services are covered under the Citizen\'s Charter?')">
+            <span class="q-icon">📜</span>Citizen's Charter
+          </button>
+          <button class="q-btn" onclick="ask('What are the requirements for requesting official documents?')">
+            <span class="q-icon">📄</span>Documents
+          </button>
+          <button class="q-btn" onclick="ask('What are the office hours and contact numbers of different campus offices?')">
+            <span class="q-icon">🏢</span>Office Hours
+          </button>
+          <button class="q-btn" onclick="ask('What are the scholarship programs available?')">
+            <span class="q-icon">🎓</span>Scholarships
+          </button>
+          <button class="q-btn" onclick="ask('How can I pay my tuition and fees?')">
+            <span class="q-icon">💳</span>Payments
+          </button>
+          <button class="q-btn" onclick="ask('What are the upcoming campus events and announcements?')">
+            <span class="q-icon">📣</span>Announcements
+          </button>
+        </div>
+      </div>
+
+      <!-- Input -->
+      <div class="input-section">
+        <div class="input-wrap">
+          <input class="text-input" id="userInput" type="text"
+            placeholder="Ask Iris anything or tap the mic to speak…" />
+          <div class="voice-vis" id="voiceVis">
+            <div class="v-bar"></div><div class="v-bar"></div>
+            <div class="v-bar"></div><div class="v-bar"></div>
+            <div class="v-bar"></div>
+          </div>
+          <button class="mic-btn" id="micBtn" onclick="toggleMic()" title="Voice input">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round">
+              <rect x="9" y="2" width="6" height="12" rx="3" stroke="rgba(163,71,229,0.75)" fill="rgba(163,71,229,0.08)"/>
+              <path d="M5 10v2a7 7 0 0 0 14 0v-2" stroke="rgba(163,71,229,0.75)"/>
+              <line x1="12" y1="19" x2="12" y2="23" stroke="rgba(163,71,229,0.55)"/>
+              <line x1="8" y1="23" x2="16" y2="23" stroke="rgba(163,71,229,0.55)"/>
+            </svg>
+          </button>
+          <button class="send-btn" onclick="sendMsg()" title="Send">
+            <svg viewBox="0 0 24 24"><line x1="22" y1="2" x2="11" y2="13"/><polygon points="22 2 15 22 11 13 2 9 22 2"/></svg>
+          </button>
+        </div>
+      </div>
+
+    </div>
+  </div>
+
+  <!-- BOTTOM BAR -->
+  <div class="bottombar">
+    <div class="bb-left">Queries today: <strong id="qCount">0</strong></div>
+    <div class="bb-center">
+      <button class="lang-btn active">EN</button>
+      <button class="lang-btn">FIL</button>
+    </div>
+    <div class="bb-right">Session: <strong id="session">—</strong></div>
+  </div>
+
+</div>
+
+<!-- ── Import map ──────────────────────────────────────────────── -->
+<script type="importmap">
+{
+  "imports": {
+    "three":             "https://cdn.jsdelivr.net/npm/three@0.169.0/build/three.module.js",
+    "three/addons/":     "https://cdn.jsdelivr.net/npm/three@0.169.0/examples/jsm/",
+    "@pixiv/three-vrm":  "https://cdn.jsdelivr.net/npm/@pixiv/three-vrm@3.0.0/lib/three-vrm.module.js"
+  }
+}
+</script>
+
+<!-- ── Three.js VRM viewer ─────────────────────────────────────── -->
+<script type="module">
+import * as THREE from 'three';
+import { GLTFLoader }    from 'three/addons/loaders/GLTFLoader.js';
+import { VRMLoaderPlugin, VRMUtils } from '@pixiv/three-vrm';
+
+const canvas  = document.getElementById('vrm-canvas');
+const col     = canvas.parentElement;
+const loading = document.getElementById('vrm-loading');
+
+// ── Renderer ────────────────────────────────────────────────────
+const renderer = new THREE.WebGLRenderer({ canvas, antialias: true, alpha: true });
+renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
+renderer.outputColorSpace = THREE.SRGBColorSpace;
+
+function resize() {
+  const w = col.clientWidth;
+  const h = col.clientHeight;
+  renderer.setSize(w, h, false);
+  camera.aspect = w / h;
+  camera.updateProjectionMatrix();
+}
+
+// ── Scene ────────────────────────────────────────────────────────
+const scene  = new THREE.Scene();
+const clock  = new THREE.Clock();
+
+// Camera framed to show the model from waist up
+const camera = new THREE.PerspectiveCamera(28, 1, 0.1, 20);
+camera.position.set(0, 1.0, 1.8);
+camera.lookAt(0, 0.8, 0);
+
+// Lights
+scene.add(new THREE.AmbientLight(0xffffff, 0.7));
+const key = new THREE.DirectionalLight(0xffffff, 1.8);
+key.position.set(1, 2, 2);
+scene.add(key);
+// Subtle purple rim light to match UI palette
+const rim = new THREE.DirectionalLight(0xa347e5, 0.6);
+rim.position.set(-2, 1, -1);
+scene.add(rim);
+
+// ── Load VRM ────────────────────────────────────────────────────
+let vrm = null;
+const loader = new GLTFLoader();
+loader.register(parser => new VRMLoaderPlugin(parser));
+
+loader.load(
+  './bsu_girl.vrm',
+  gltf => {
+    vrm = gltf.userData.vrm;
+    vrm.scene.scale.setScalar(0.75); // ← scale fix from earlier
+    scene.add(vrm.scene);
+    window._devVrm = vrm;            // ← ADD THIS
+    loading.style.display = 'none';
+    console.log('[VRM] Loaded. Expressions:', Object.keys(vrm.expressionManager?.expressionMap ?? {}));
+  },
+  undefined,
+  err => {
+    console.error('[VRM] Load error:', err);
+    loading.querySelector('.vrm-loading-text').textContent = 'Model unavailable';
+    loading.querySelector('.vrm-spinner').style.display = 'none';
+  }
+);
+
+// ── Idle breathing animation ─────────────────────────────────────
+// Gently bobs the chest bone so the model doesn't look static
+function applyIdle(t) {
+  if (!vrm?.humanoid) return;
+  const chest = vrm.humanoid.getNormalizedBoneNode('chest');
+  const spine = vrm.humanoid.getNormalizedBoneNode('spine');
+  if (chest) chest.rotation.x = Math.sin(t * 0.8) * 0.012;
+  if (spine) spine.rotation.x = Math.sin(t * 0.8 + 0.3) * 0.008;
+}
+
+// ── Render loop ──────────────────────────────────────────────────
+function animate() {
+  requestAnimationFrame(animate);
+  const delta = clock.getDelta();
+  const elapsed = clock.elapsedTime;
+  if (vrm) {
+    applyIdle(elapsed);
+    vrm.update(delta);
+  }
+  window._devMixerUpdate?.(delta); // ← ADD THIS
+  renderer.render(scene, camera);
+}
+
+resize();
+new ResizeObserver(resize).observe(col);
+animate();
+
+// ── Expose mouth control for typewriter ─────────────────────────
+// Called by the UI script when Iris is "talking"
+window.setIrisMouth = function(open) {
+  vrm?.expressionManager?.setValue('aa', open ? 0.4 : 0);
+};
+</script>
+
+<!-- ── UI Script ───────────────────────────────────────────────── -->
+<script>
+  // Clock & date
+  function tick() {
+    const now = new Date();
+    document.getElementById('clock').textContent =
+      now.toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit' });
+    document.getElementById('date-display').textContent =
+      now.toLocaleDateString('en-US', { weekday:'short', month:'short', day:'numeric' });
+  }
+  tick(); setInterval(tick, 1000);
+
+  // Session ID
+  document.getElementById('session').textContent =
+    'KSK-' + Math.random().toString(36).slice(2,6).toUpperCase();
+
+  let qCount = 0;
+
+  // Typewriter — opens/closes VRM mouth while typing
+  let typeTimer;
+  function typeText(text) {
+    const el = document.getElementById('aiText');
+    el.innerHTML = '';
+    let i = 0;
+    clearInterval(typeTimer);
+    window.setIrisMouth?.(true);
+    typeTimer = setInterval(() => {
+      if (i < text.length) {
+        el.innerHTML = text.slice(0, ++i) + '<span class="cursor"></span>';
+      } else {
+        el.innerHTML = text;
+        clearInterval(typeTimer);
+        window.setIrisMouth?.(false);
+      }
+    }, 18);
+  }
+
+  function setTopic(topic) {
+    document.getElementById('topicTag').textContent = topic;
+  }
+
+  // Greeting
+  typeText("Good day! I'm your Campus AI Assistant. I can help you with enrollment and registration steps, campus directions, citizen's charter services, official document requests, scholarship inquiries, and more. How may I assist you today?");
+
+  async function sendMsg() {
+    const input = document.getElementById('userInput');
+    const text = input.value.trim();
+    if (!text) return;
+    input.value = '';
+    await processQuery(text);
+  }
+
+  async function ask(text) { await processQuery(text); }
+
+  async function processQuery(text) {
+    qCount++;
+    document.getElementById('qCount').textContent = qCount;
+
+    const ind = document.getElementById('typingInd');
+    ind.style.display = 'flex';
+    document.getElementById('aiText').innerHTML =
+      '<span style="color:var(--text-dimmer);font-style:italic;font-size:14px">Retrieving information from campus knowledge base…</span>';
+
+    const t = text.toLowerCase();
+    if      (t.includes('enrol') || t.includes('registr'))                setTopic('Enrollment');
+    else if (t.includes('map')   || t.includes('direct') || t.includes('where')) setTopic('Navigation');
+    else if (t.includes('charter') || t.includes('service'))              setTopic("Citizen's Charter");
+    else if (t.includes('document') || t.includes('certif') || t.includes('tor')) setTopic('Documents');
+    else if (t.includes('scholar'))                                        setTopic('Scholarship');
+    else if (t.includes('pay')   || t.includes('tuition') || t.includes('fee'))   setTopic('Finance');
+    else if (t.includes('event') || t.includes('announc'))                setTopic('Announcements');
+    else setTopic('General');
+
+    try {
+      const res = await fetch('/api/chat', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ message: text })
+      });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.error || 'Server error');
+      ind.style.display = 'none';
+      typeText(data.reply);
+    } catch (e) {
+      ind.style.display = 'none';
+      typeText("I'm currently unable to connect to the knowledge base. Please approach the information desk or the Registrar's Office for assistance. Thank you for your patience.");
+      console.error('API error:', e);
+    }
+  }
+
+  document.getElementById('userInput').addEventListener('keydown', e => {
+    if (e.key === 'Enter') sendMsg();
+  });
+
+  let micActive = false;
+  function toggleMic() {
+    micActive = !micActive;
+    const btn = document.getElementById('micBtn');
+    const vis = document.getElementById('voiceVis');
+    const inp = document.getElementById('userInput');
+    if (micActive) {
+      btn.classList.add('active');
+      vis.style.display = 'flex';
+      inp.style.display = 'none';
+    } else {
+      btn.classList.remove('active');
+      vis.style.display = 'none';
+      inp.style.display = 'block';
+    }
+  }
+
+  document.querySelectorAll('.lang-btn').forEach(btn => {
+    btn.addEventListener('click', () => {
+      document.querySelectorAll('.lang-btn').forEach(b => b.classList.remove('active'));
+      btn.classList.add('active');
+    });
+  });
+</script>
+<!-- ══════════════════════════════════════════════════════
+     DEV ONLY — remove this entire block before deployment
+     ══════════════════════════════════════════════════════ -->
+<div id="dev-anim-btn" style="
+  position: fixed;
+  bottom: 60px;
+  left: 16px;
+  z-index: 9999;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+">
+  <label style="
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    padding: 8px 14px;
+    background: rgba(163,71,229,0.15);
+    border: 1px dashed rgba(163,71,229,0.5);
+    border-radius: 8px;
+    color: #ce70e8;
+    font-family: 'DM Mono', monospace;
+    font-size: 11px;
+    letter-spacing: 1px;
+    cursor: pointer;
+    transition: background 0.2s;
+  " onmouseenter="this.style.background='rgba(163,71,229,0.25)'"
+     onmouseleave="this.style.background='rgba(163,71,229,0.15)'">
+    <input type="file" accept=".fbx" id="dev-fbx-input" style="display:none"/>
+    🎬 LOAD FBX [DEV]
+  </label>
+  <div id="dev-anim-label" style="
+    font-family: 'DM Mono', monospace;
+    font-size: 9px;
+    color: rgba(206,112,232,0.5);
+    text-align: center;
+    letter-spacing: 1px;
+  ">no animation loaded</div>
+</div>
+
+<script type="module">
+import { FBXLoader } from 'three/addons/loaders/FBXLoader.js';
+import * as THREE from 'three';
+
+const MIXAMO_TO_VRM = {
+  mixamorigHips:'hips', mixamorigSpine:'spine', mixamorigSpine1:'chest',
+  mixamorigSpine2:'upperChest', mixamorigNeck:'neck', mixamorigHead:'head',
+  mixamorigLeftShoulder:'leftShoulder', mixamorigLeftArm:'leftUpperArm',
+  mixamorigLeftForeArm:'leftLowerArm', mixamorigLeftHand:'leftHand',
+  mixamorigRightShoulder:'rightShoulder', mixamorigRightArm:'rightUpperArm',
+  mixamorigRightForeArm:'rightLowerArm', mixamorigRightHand:'rightHand',
+  mixamorigLeftUpLeg:'leftUpperLeg', mixamorigLeftLeg:'leftLowerLeg',
+  mixamorigLeftFoot:'leftFoot', mixamorigLeftToeBase:'leftToes',
+  mixamorigRightUpLeg:'rightUpperLeg', mixamorigRightLeg:'rightLowerLeg',
+  mixamorigRightFoot:'rightFoot', mixamorigRightToeBase:'rightToes',
+  mixamorigLeftHandThumb1:'leftThumbMetacarpal', mixamorigLeftHandThumb2:'leftThumbProximal',
+  mixamorigLeftHandThumb3:'leftThumbDistal', mixamorigLeftHandIndex1:'leftIndexProximal',
+  mixamorigLeftHandIndex2:'leftIndexIntermediate', mixamorigLeftHandIndex3:'leftIndexDistal',
+  mixamorigRightHandThumb1:'rightThumbMetacarpal', mixamorigRightHandThumb2:'rightThumbProximal',
+  mixamorigRightHandThumb3:'rightThumbDistal', mixamorigRightHandIndex1:'rightIndexProximal',
+  mixamorigRightHandIndex2:'rightIndexIntermediate', mixamorigRightHandIndex3:'rightIndexDistal',
+};
+
+const REALLUSION_TO_VRM = {
+  'CC_Base_Hip':'hips', 'CC_Base_Spine01':'spine', 'CC_Base_Spine02':'chest',
+  'CC_Base_NeckTwist01':'neck', 'CC_Base_Head':'head',
+  'CC_Base_L_Clavicle':'leftShoulder', 'CC_Base_L_Upperarm':'leftUpperArm',
+  'CC_Base_L_Forearm':'leftLowerArm', 'CC_Base_L_Hand':'leftHand',
+  'CC_Base_R_Clavicle':'rightShoulder', 'CC_Base_R_Upperarm':'rightUpperArm',
+  'CC_Base_R_Forearm':'rightLowerArm', 'CC_Base_R_Hand':'rightHand',
+  'CC_Base_L_Thigh':'leftUpperLeg', 'CC_Base_L_Calf':'leftLowerLeg',
+  'CC_Base_L_Foot':'leftFoot', 'CC_Base_L_ToeBase':'leftToes',
+  'CC_Base_R_Thigh':'rightUpperLeg', 'CC_Base_R_Calf':'rightLowerLeg',
+  'CC_Base_R_Foot':'rightFoot', 'CC_Base_R_ToeBase':'rightToes',
+};
+
+const BONE_MAP = { ...MIXAMO_TO_VRM, ...REALLUSION_TO_VRM };
+
+let devMixer = null;
+
+function retarget(clip, fbx, vrm) {
+  const tracks = [];
+  let mapped = 0, skipped = 0;
+
+  clip.tracks.forEach(track => {
+    const dot      = track.name.lastIndexOf('.');
+    const boneName = track.name.slice(0, dot);
+    const prop     = track.name.slice(dot + 1);
+    const clean    = boneName.split('|').pop().trim();
+    const vrmBone  = BONE_MAP[clean];
+    if (!vrmBone) { skipped++; return; }
+
+    const vrmNode    = vrm.humanoid.getNormalizedBoneNode(vrmBone);
+    const mixamoNode = fbx.getObjectByName(clean);
+    if (!vrmNode || !mixamoNode) { skipped++; return; }
+
+    if (prop === 'quaternion') {
+      const restQuatInv  = mixamoNode.quaternion.clone().invert();
+      const parentWorld  = new THREE.Quaternion();
+      if (mixamoNode.parent) mixamoNode.parent.getWorldQuaternion(parentWorld);
+      const parentWorldInv = parentWorld.clone().invert();
+
+      const values    = track.values;
+      const newValues = new Float32Array(values.length);
+      const q         = new THREE.Quaternion();
+
+      for (let i = 0; i < values.length; i += 4) {
+        q.fromArray(values, i);
+        q.multiply(restQuatInv);
+        q.premultiply(parentWorld);
+        q.multiply(parentWorldInv);
+        q.toArray(newValues, i);
+      }
+
+      tracks.push(new THREE.QuaternionKeyframeTrack(
+        `${vrmNode.name}.${prop}`, track.times, newValues
+      ));
+      mapped++;
+
+    } else if (prop === 'position' && vrmBone === 'hips') {
+      const restPosInv  = mixamoNode.position.clone().multiplyScalar(-1);
+      const parentWorld = new THREE.Quaternion();
+      if (mixamoNode.parent) mixamoNode.parent.getWorldQuaternion(parentWorld);
+      const vrmRestPos  = vrmNode.position.clone();
+
+      const values    = track.values;
+      const newValues = new Float32Array(values.length);
+      const v         = new THREE.Vector3();
+
+      for (let i = 0; i < values.length; i += 3) {
+        v.fromArray(values, i);
+        v.add(restPosInv);
+        v.applyQuaternion(parentWorld);
+        v.multiplyScalar(0.01);
+        v.add(vrmRestPos);
+        v.toArray(newValues, i);
+      }
+
+      tracks.push(new THREE.VectorKeyframeTrack(
+        `${vrmNode.name}.${prop}`, track.times, newValues
+      ));
+      mapped++;
+
+    } else {
+      skipped++;
+    }
+  });
+
+  console.log(`[DEV] Retargeted: ${mapped} mapped, ${skipped} skipped`);
+  return new THREE.AnimationClip(clip.name, clip.duration, tracks);
+}
+
+document.getElementById('dev-fbx-input').addEventListener('change', e => {
+  const file = e.target.files[0];
+  if (!file) return;
+
+  const vrm = window._devVrm;
+  if (!vrm) { alert('VRM not loaded yet — wait for the model to finish loading.'); return; }
+
+  const url = URL.createObjectURL(file);
+  new FBXLoader().load(url, fbx => {
+    URL.revokeObjectURL(url);
+    if (!fbx.animations.length) { alert('No animations in this FBX.'); return; }
+
+    const clip = retarget(fbx.animations[0], fbx, vrm);
+
+    if (devMixer) { devMixer.stopAllAction(); devMixer.uncacheRoot(devMixer.getRoot()); }
+    devMixer = new THREE.AnimationMixer(vrm.scene);
+    devMixer.clipAction(clip).play();
+
+    window._devMixerUpdate = dt => devMixer.update(dt);
+    document.getElementById('dev-anim-label').textContent = file.name;
+    console.log('[DEV] Animation loaded:', fbx.animations[0].name);
+  });
+});
+</script>
+<!-- ══ END DEV BLOCK ══════════════════════════════════════════════ -->
+</body>
+</html>

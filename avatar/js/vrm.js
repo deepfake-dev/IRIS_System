@@ -25,7 +25,6 @@ export class VRMController {
           }
 
           this.vrm = gltf.userData.vrm;
-          VRMUtils.rotateVRM0(this.vrm);
           this.vrm.scene.traverse(obj => { if (obj.isMesh) obj.castShadow = true; });
           this.scene.add(this.vrm.scene);
 

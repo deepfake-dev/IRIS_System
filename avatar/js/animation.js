@@ -40,6 +40,32 @@ const MIXAMO_TO_VRM = {
   mixamorigRightHandIndex3:  'rightIndexDistal',
 };
 
+const REALLUSION_TO_VRM = {
+  'CC_Base_Hip': 'hips',
+  'CC_Base_Spine01': 'spine',
+  'CC_Base_Spine02': 'chest',
+  'CC_Base_NeckTwist01': 'neck',
+  'CC_Base_Head': 'head',
+  'CC_Base_L_Clavicle': 'leftShoulder',
+  'CC_Base_L_Upperarm': 'leftUpperArm',
+  'CC_Base_L_Forearm': 'leftLowerArm',
+  'CC_Base_L_Hand': 'leftHand',
+  'CC_Base_R_Clavicle': 'rightShoulder',
+  'CC_Base_R_Upperarm': 'rightUpperArm',
+  'CC_Base_R_Forearm': 'rightLowerArm',
+  'CC_Base_R_Hand': 'rightHand',
+  'CC_Base_L_Thigh': 'leftUpperLeg',
+  'CC_Base_L_Calf': 'leftLowerLeg',
+  'CC_Base_L_Foot': 'leftFoot',
+  'CC_Base_L_ToeBase': 'leftToes',
+  'CC_Base_R_Thigh': 'rightUpperLeg',
+  'CC_Base_R_Calf': 'rightLowerLeg',
+  'CC_Base_R_Foot': 'rightFoot',
+  'CC_Base_R_ToeBase': 'rightToes'
+};
+
+const BONE_MAP = { ...MIXAMO_TO_VRM, ...REALLUSION_TO_VRM };
+
 export class AnimationController {
   constructor(vrmController) {
     this.vrmCtrl = vrmController;
@@ -60,7 +86,7 @@ export class AnimationController {
             reject(new Error('No animations found in FBX file'));
             return;
           }
-          const clip = this._retarget(fbx.animations[0]);
+          const clip = this._retarget(fbx.animations[0], fbx);
           this._applyClip(clip);
           resolve(fbx.animations[0].name || file.name);
         },
@@ -80,7 +106,7 @@ export class AnimationController {
             reject(new Error('No animations found in FBX'));
             return;
           }
-          const clip = this._retarget(fbx.animations[0]);
+          const clip = this._retarget(fbx.animations[0], fbx);
           this._applyClip(clip);
           resolve(fbx.animations[0].name || url);
         },
@@ -91,7 +117,8 @@ export class AnimationController {
   }
 
   // ── Retarget Mixamo clip → VRM bone names ────────────────────────────────
-  _retarget(clip) {
+  // ── Retarget Mixamo clip → VRM bone names ────────────────────────────────
+  _retarget(clip, fbx) {
     const vrm    = this.vrmCtrl.vrm;
     const tracks = [];
     let mapped = 0, skipped = 0;
@@ -101,23 +128,88 @@ export class AnimationController {
       const boneName = track.name.slice(0, dotIdx);
       const prop     = track.name.slice(dotIdx + 1);
 
-      // Strip hierarchy prefix e.g. "Armature|mixamorigHips" → "mixamorigHips"
       const cleanBone   = boneName.split('|').pop().trim();
-      const vrmBoneName = MIXAMO_TO_VRM[cleanBone];
+      const vrmBoneName = BONE_MAP[cleanBone];
 
       if (!vrmBoneName) { skipped++; return; }
 
       const vrmNode = vrm.humanoid.getNormalizedBoneNode(vrmBoneName);
-      if (!vrmNode)  { skipped++; return; }
+      const mixamoNode = fbx.getObjectByName(cleanBone);
 
-      // Drop hip position tracks to avoid floating/sinking
-      // Remove this guard if you want root motion
-      if (cleanBone === 'mixamorigHips' && prop === 'position') { skipped++; return; }
+      if (!vrmNode || !mixamoNode) { skipped++; return; }
 
-      const t   = track.clone();
-      t.name    = `${vrmNode.name}.${prop}`;
-      tracks.push(t);
-      mapped++;
+      if (prop === 'quaternion') {
+        // 1. Get Inverse of Mixamo Rest Rotation
+        const restQuatInv = mixamoNode.quaternion.clone().invert();
+        
+        // 2. Get World Rotation of the Mixamo Parent to align the coordinate spaces
+        const parentWorld = new THREE.Quaternion();
+        if (mixamoNode.parent) {
+            mixamoNode.parent.getWorldQuaternion(parentWorld);
+        }
+        const parentWorldInv = parentWorld.clone().invert();
+
+        const values = track.values;
+        const newValues = new Float32Array(values.length);
+        const q = new THREE.Quaternion();
+
+        for (let i = 0; i < values.length; i += 4) {
+          q.fromArray(values, i);
+          
+          // Mathematically transform the Mixamo bone twist into the VRM World space
+          q.multiply(restQuatInv);
+          q.premultiply(parentWorld);
+          q.multiply(parentWorldInv);
+          
+          q.toArray(newValues, i);
+        }
+
+        // CRITICAL: Must use QuaternionKeyframeTrack so Three.js uses Slerp!
+        tracks.push(new THREE.QuaternionKeyframeTrack(
+          `${vrmNode.name}.${prop}`,
+          track.times,
+          newValues
+        ));
+        mapped++;
+
+      } else if (prop === 'position' && vrmBoneName === 'hips') {
+        // 1. Get Inverse of Mixamo Rest Position
+        const restPosInv = mixamoNode.position.clone().multiplyScalar(-1);
+        
+        // 2. Get Parent World rotation to map translation directions correctly
+        const parentWorld = new THREE.Quaternion();
+        if (mixamoNode.parent) {
+            mixamoNode.parent.getWorldQuaternion(parentWorld);
+        }
+
+        // 3. Get VRM Rest Position (Without this, her legs will sink into the floor)
+        const vrmRestPos = vrmNode.position.clone();
+
+        const values = track.values;
+        const newValues = new Float32Array(values.length);
+        const v = new THREE.Vector3();
+
+        for (let i = 0; i < values.length; i += 3) {
+          v.fromArray(values, i);
+          
+          // Get positional delta, rotate to VRM world, scale to meters, add to VRM height
+          v.add(restPosInv);
+          v.applyQuaternion(parentWorld);
+          v.multiplyScalar(0.01);
+          v.add(vrmRestPos);
+          
+          v.toArray(newValues, i);
+        }
+
+        tracks.push(new THREE.VectorKeyframeTrack(
+          `${vrmNode.name}.${prop}`,
+          track.times,
+          newValues
+        ));
+        mapped++;
+      } else {
+        skipped++;
+      }
     });
 
     console.log(`[Anim] Retargeted: ${mapped} tracks mapped, ${skipped} skipped`);

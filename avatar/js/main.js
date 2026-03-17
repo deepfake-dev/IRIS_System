@@ -32,7 +32,7 @@ const animCtrl = new AnimationController(vrmCtrl);
 
 // ── Load VRM model ───────────────────────────────────────────────────────────
 setStatus('loading', 'Loading model…');
-vrmCtrl.load('./aba.vrm')
+vrmCtrl.load('./bsu_girl.vrm')
   .then(() => setStatus('disconnected', 'Model ready — connecting…'))
   .catch(err => {
     console.error('[Main] VRM load failed:', err);
