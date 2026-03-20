@@ -1,0 +1,205 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Campus AI Assistant</title>
+  <meta http-equiv="Content-Security-Policy"
+        content="default-src 'self';
+                 script-src 'self' https://cdn.jsdelivr.net https://fonts.googleapis.com 'unsafe-inline';
+                 style-src  'self' https://fonts.googleapis.com https://fonts.gstatic.com 'unsafe-inline';
+                 font-src   https://fonts.gstatic.com;
+                 connect-src 'self' blob: ws://localhost:8080 wss://localhost:8443;
+                 img-src 'self' data: blob:;
+                 worker-src blob:;">
+  <link rel="icon" type="image/png" href="./icon.png">
+  <link href="https://fonts.googleapis.com/css2?family=Playfair+Display:wght@600;700&family=DM+Sans:wght@300;400;500;600&family=DM+Mono:wght@400;500&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="./css/kiosk.css">
+  <style>
+    /* New state styles for the wake pill */
+    .wake-pill.active {
+      border-color: #a347e5;
+      background: rgba(163, 71, 229, 0.1);
+      box-shadow: 0 0 15px rgba(163, 71, 229, 0.4);
+    }
+    .wake-pill.active .wake-status { color: #a347e5; }
+    
+    .wake-pill.processing {
+      border-color: #e5a347;
+      background: rgba(229, 163, 71, 0.1);
+      box-shadow: 0 0 15px rgba(229, 163, 71, 0.4);
+    }
+    .wake-pill.processing .wake-status { color: #e5a347; }
+    .wake-pill.processing .w-bar { animation: pulse 1s infinite alternate; background: #e5a347; }
+  </style>
+</head>
+<body>
+
+<div class="bg"></div>
+<div class="bg-overlay"></div>
+
+<div class="kiosk">
+
+  <!-- TOP BAR -->
+  <div class="topbar">
+    <div class="topbar-left">
+      <div class="school-seal">
+        <img src="./logo.png" alt="Logo" style="width:36px;height:36px;border-radius:50%;object-fit:cover;">
+      </div>
+      <div class="topbar-divider"></div>
+      <div class="school-seal">
+        <img src="./icon.png" alt="Icon" style="width:36px;height:36px;border-radius:50%;object-fit:cover;">
+      </div>
+      <div>
+        <div class="school-name">IRIS</div>
+        <div class="school-tagline">Intelligent Retrieval-Augmented Institutional Support Bot</div>
+      </div>
+    </div>
+    <div class="topbar-center">
+      <div class="status-pill">
+        <div class="status-dot"></div>
+        Online
+      </div>
+    </div>
+    <div class="topbar-right">
+      <div class="clock" id="clock">--:--</div>
+      <div id="date-display">---</div>
+    </div>
+  </div>
+
+  <!-- MAIN -->
+  <div class="main">
+
+    <!-- AVATAR -->
+    <div class="avatar-col">
+      <div class="orbit-ring orbit-1"></div>
+      <div class="orbit-ring orbit-2"></div>
+      <div class="avatar-glow"></div>
+      <canvas id="vrm-canvas"></canvas>
+      <div id="vrm-loading">
+        <div class="vrm-spinner"></div>
+        <div class="vrm-loading-text">Loading model...</div>
+      </div>
+    </div>
+
+    <!-- CONVERSATION -->
+    <div class="conv-col">
+
+      <div class="bubble-section">
+        <div class="bubble-label">Iris</div>
+        <div class="speech-bubble">
+          <div class="bubble-ai-header">
+            <div class="ai-avatar-pill">A</div>
+            <div class="ai-title-wrap">
+              <div class="ai-name">Iris</div>
+              <div class="ai-subtitle">Hello Red Spartans!</div>
+            </div>
+            <div class="typing-indicator" id="typingInd" style="display:none">
+              <div class="t-dot"></div>
+              <div class="t-dot"></div>
+              <div class="t-dot"></div>
+              <span>Processing</span>
+            </div>
+          </div>
+          <div class="bubble-body" id="aiText"></div>
+          <div class="bubble-meta">
+            <div class="meta-tags">
+              <span class="meta-tag">Verified</span>
+              <span class="meta-tag" id="topicTag">General</span>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <div class="quick-section">
+        <div class="qs-label">Frequently Asked</div>
+        <div class="quick-grid">
+          <button class="q-btn" data-query="What are the steps for enrollment and registration?">
+            <span class="q-icon">📋</span>Enrollment
+          </button>
+          <button class="q-btn" data-query="How do I get to the Registrar's Office?">
+            <span class="q-icon">🗺️</span>Directions
+          </button>
+          <button class="q-btn" data-query="What services are covered under the Citizen's Charter?">
+            <span class="q-icon">📜</span>Citizen's Charter
+          </button>
+          <button class="q-btn" data-query="What are the requirements for requesting official documents?">
+            <span class="q-icon">📄</span>Documents
+          </button>
+          <button class="q-btn" data-query="What are the office hours and contact numbers of different campus offices?">
+            <span class="q-icon">🏢</span>Office Hours
+          </button>
+          <button class="q-btn" data-query="What are the scholarship programs available?">
+            <span class="q-icon">🎓</span>Scholarships
+          </button>
+          <button class="q-btn" data-query="How can I pay my tuition and fees?">
+            <span class="q-icon">💳</span>Payments
+          </button>
+          <button class="q-btn" data-query="What are the upcoming campus events and announcements?">
+            <span class="q-icon">📣</span>Announcements
+          </button>
+        </div>
+      </div>
+
+      <!-- Wake word indicator -->
+      <div class="wake-section">
+        <div class="wake-pill" id="wake-pill">
+          <div class="wake-ring-wrap">
+            <div class="wake-ring"></div>
+            <div class="wake-ring"></div>
+            <div class="wake-ring"></div>
+            <div class="wake-core"></div>
+          </div>
+          <div class="wake-bars">
+            <div class="w-bar"></div>
+            <div class="w-bar"></div>
+            <div class="w-bar"></div>
+            <div class="w-bar"></div>
+            <div class="w-bar"></div>
+            <div class="w-bar"></div>
+            <div class="w-bar"></div>
+          </div>
+          <div class="wake-text" id="wake-text">Say <strong>"Hey Iris"</strong> to start speaking</div>
+          <div class="wake-status" id="wake-status">Listening</div>
+        </div>
+      </div>
+
+    </div>
+  </div>
+
+  <!-- BOTTOM BAR -->
+  <div class="bottombar">
+    <div class="bb-left">Queries today: <strong id="qCount">0</strong></div>
+    <div class="bb-center">
+      <button class="lang-btn active" data-lang="EN">EN</button>
+      <button class="lang-btn" data-lang="FIL">FIL</button>
+    </div>
+    <div class="bb-right">Session: <strong id="session">—</strong></div>
+  </div>
+
+</div>
+
+<!-- DEV ONLY — remove before deployment -->
+<div id="dev-anim-btn">
+  <label id="dev-fbx-label">
+    <input type="file" accept=".fbx" id="dev-fbx-input">
+    🎬 LOAD FBX [DEV]
+  </label>
+  <div id="dev-anim-label">no animation loaded</div>
+</div>
+<!-- END DEV BLOCK -->
+
+<script type="importmap">
+{
+  "imports": {
+    "three":            "https://cdn.jsdelivr.net/npm/three@0.169.0/build/three.module.js",
+    "three/addons/":    "https://cdn.jsdelivr.net/npm/three@0.169.0/examples/jsm/",
+    "@pixiv/three-vrm": "https://cdn.jsdelivr.net/npm/@pixiv/three-vrm@3.0.0/lib/three-vrm.module.js"
+  }
+}
+</script>
+
+<script type="module" src="./js/main.js"></script>
+
+</body>
+</html>

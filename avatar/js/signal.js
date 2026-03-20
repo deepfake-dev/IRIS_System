@@ -1,15 +1,16 @@
-// js/signal.js — Routes incoming signal payloads to VRM / animation controllers
+// js/signal.js — Routes incoming WebSocket JSON payloads to VRM / audio / UI
 
 export class SignalHandler {
   /**
    * @param {VRMController}       vrmCtrl
    * @param {AnimationController} animCtrl
+   * @param {AudioManager|null}   audioMgr
    */
-  constructor(vrmCtrl, animCtrl) {
+  constructor(vrmCtrl, animCtrl, audioMgr = null) {
     this.vrmCtrl  = vrmCtrl;
     this.animCtrl = animCtrl;
+    this.audioMgr = audioMgr;
 
-    // Expose globally so Python or dev tools can call window.sendSignal(...)
     window.sendSignal = data => this.handle(data);
   }
 
@@ -23,18 +24,31 @@ export class SignalHandler {
       return;
     }
 
-    // ── Expression ───────────────────────────────────────────────────────
+    // ── Wake word detected ────────────────────────────────────────────────
+    // Python sends: {"wakeword": true}
+    // main.js listens for this on window to update the wake pill UI.
+    if (data.wakeword === true) {
+      window.dispatchEvent(new CustomEvent('iris:wakeword'));
+    }
+
+    // ── Listening state ───────────────────────────────────────────────────
+    // Python sends: {"listening": true} or {"listening": false}
+    if (data.listening !== undefined) {
+      window.dispatchEvent(new CustomEvent('iris:listening', { detail: data.listening }));
+    }
+
+    // ── Expression ────────────────────────────────────────────────────────
     if (data.expression !== undefined) {
       const intensity = typeof data.intensity === 'number' ? data.intensity : 1.0;
       this.vrmCtrl.setExpression(data.expression, intensity);
     }
 
-    // ── Mouth (convenience shorthand for 'aa' expression) ────────────────
+    // ── Mouth (shorthand for 'aa' expression) ─────────────────────────────
     if (data.mouth !== undefined) {
       this.vrmCtrl.setMouth(data.mouth);
     }
 
-    // ── Bone rotation ────────────────────────────────────────────────────
+    // ── Bone rotation ─────────────────────────────────────────────────────
     if (data.bone !== undefined && data.rotation !== undefined) {
       if (typeof data.bone !== 'string') {
         console.warn('[Signal] bone must be a string');
@@ -45,7 +59,7 @@ export class SignalHandler {
       }
     }
 
-    // ── Head look-at ─────────────────────────────────────────────────────
+    // ── Head look-at ──────────────────────────────────────────────────────
     if (data.lookAt !== undefined) {
       if (typeof data.lookAt !== 'object') {
         console.warn('[Signal] lookAt must be an object {x,y,z}');
@@ -54,7 +68,7 @@ export class SignalHandler {
       }
     }
 
-    // ── Animation playback controls ──────────────────────────────────────
+    // ── Animation playback controls ───────────────────────────────────────
     if (data.animControl !== undefined) {
       switch (data.animControl) {
         case 'play':  this.animCtrl.play();  break;
@@ -64,7 +78,7 @@ export class SignalHandler {
       }
     }
 
-    // ── Load animation from URL (e.g. served from Python backend) ────────
+    // ── Load animation from URL ───────────────────────────────────────────
     if (data.animURL !== undefined) {
       if (typeof data.animURL !== 'string' || !data.animURL.startsWith('/')) {
         console.warn('[Signal] animURL must be a relative path starting with /');
@@ -72,15 +86,13 @@ export class SignalHandler {
       }
       this.animCtrl.loadFromURL(data.animURL)
         .then(name => console.log(`[Signal] Animation loaded: ${name}`))
-        .catch(err => console.error('[Signal] Animation load failed:', err));
+        .catch(err  => console.error('[Signal] Animation load failed:', err));
     }
 
-    // ── Animation speed ──────────────────────────────────────────────────
+    // ── Animation speed ───────────────────────────────────────────────────
     if (data.animSpeed !== undefined) {
       const speed = parseFloat(data.animSpeed);
-      if (!isNaN(speed) && speed > 0) {
-        this.animCtrl.setSpeed(speed);
-      }
+      if (!isNaN(speed) && speed > 0) this.animCtrl.setSpeed(speed);
     }
   }
 }
