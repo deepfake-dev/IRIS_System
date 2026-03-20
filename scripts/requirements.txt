@@ -27,6 +27,7 @@ PyAudio
 qwen-vl-utils
 sounddevice
 soundfile
+sentence_transformers
 torch==2.10.0+cu126
 torchaudio==2.10.0+cu126
 torchcodec==0.10.0

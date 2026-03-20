@@ -6,6 +6,7 @@ import logging
 import os
 import faiss
 import sqlite3
+import openwakeword
 from openai import OpenAI
 
 logging.getLogger().setLevel(logging.ERROR)
@@ -17,15 +18,17 @@ from faster_whisper import WhisperModel
 from sentence_transformers import SentenceTransformer
 from kokoro_onnx import Kokoro
 
+openwakeword.utils.download_models()
+
 class IrisAssistant:
     def __init__(self,
                  wake_word="hey_iris",
                  whisper_size="small",
                  tts_voice='bf_isabella',
                  # CRITICAL: Put the absolute or correct relative path to your custom model here!
-                 wake_word_path='hey_iris.onnx', 
-                 faiss_path="llama_index/Citizens_Charter_Handbook_2025.faiss",
-                 db_path="llama_index/Citizens_Charter_Handbook_2025.db",
+                 wake_word_path='models/wakeword/hey_iris.onnx', 
+                 faiss_path="databases/Citizens_Charter_Handbook_2025.faiss",
+                 db_path="databases/Citizens_Charter_Handbook_2025.db",
                  embed_model="BAAI/bge-small-en-v1.5",
                  rag_top_k=5,
                  websocket=None, 
@@ -55,7 +58,7 @@ class IrisAssistant:
         self.websocket_loop = websocket_loop
 
         # --- TTS & RAG ---
-        self.tts = Kokoro("kokoro-v1.0.onnx", "voices-v1.0.bin")
+        self.tts = Kokoro("models/tts/kokoro-v1.0.onnx", "models/tts/voices-v1.0.bin")
         self.embed_model = SentenceTransformer(embed_model)
         self.faiss_index = faiss.read_index(faiss_path)
         self.db_conn = sqlite3.connect(db_path, check_same_thread=False)

@@ -4,7 +4,7 @@ import ast
 from os.path import isfile, join
 from metadata_scanner import analyze_media, Decision
 from vlm_classifier import llm_classify_video
-from deepfake_detector import process_video_file
+from deepfake_detector import DeepfakeDetector
 
 def process_file(file):
     print("Current File: ", file)
@@ -22,10 +22,11 @@ def process_file(file):
             print("Verdict:", verdict)
         else:
             print(f"LLM Can't Decide [{verdict} | {reason}]. Let's try our Classifier")
-            final_verdict = process_video_file(file)
-            print(f"Overall Verdict:        {'🛑 FAKE' if final_verdict[0] else '✅ REAL'}")
-            print(f"Highest Fake Spike:     {final_verdict[1]:.4f} (Used for final verdict)")
-            print(f"Average AI Confidence:  {final_verdict[2]:.4f} (For reference only)")
+            detector = DeepfakeDetector(onnx_path="models/provenance/deepfake_detector_model.onnx")
+            final_verdict = detector.predict(file)
+            print(f"Overall Verdict:        {'🛑 FAKE' if final_verdict['is_fake'] else '✅ REAL'}")
+            print(f"Highest Fake Spike:     {final_verdict['max_confidence']:.4f} (Used for final verdict)")
+            print(f"Average AI Confidence:  {final_verdict['average_confidence']:.4f} (For reference only)")
 
 def process_dir(folder_path):
     folder_path = "C:/Users/owen/Desktop/thesis/vids_to_test"
