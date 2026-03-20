@@ -1,20 +1,22 @@
 import numpy as np
-import sounddevice as sd
 import json
 import threading
 import asyncio
 import websockets
 import random
+import time
 
 from vlm_handler import IrisAssistant
 
 class IrisAvatar:
     wave_animating = False
     speaking = False
+    
     def __init__(self, port=8080):
         self.port = port
         self.clients = set()
-        self.current_pose = {}  # tracks current bone rotations for smooth lerping
+        self.current_pose = {}
+        self.iris = IrisAssistant()
         print(f"📡 Avatar WebSocket server starting on ws://localhost:{port}")
         
         self.loop = asyncio.new_event_loop()
@@ -33,18 +35,82 @@ class IrisAvatar:
 
     async def _handler(self, websocket):
         self.clients.add(websocket)
+        self.iris.websocket = websocket
+        self.iris.websocket_loop = self.loop
+        self.iris._wakeword_triggered = False
+
         try:
-            # Set neutral pose and sync the tracker
-            neutral = {
-                'leftUpperArm':  {'z': -1.2},
-                'rightUpperArm': {'z': 1.2},
-            }
+            neutral = {'leftUpperArm': {'z': -1.2}, 'rightUpperArm': {'z': 1.2}}
             for bone, rot in neutral.items():
                 self.current_pose[bone] = rot
                 await websocket.send(json.dumps({'bone': bone, 'rotation': rot}))
-            await websocket.wait_closed()
+
+            recording_command = False
+            command_chunks = []
+            silent_chunks = 0
+            
+            # Browser sends ~4096 samples per chunk (about 0.25 seconds)
+            max_silent_chunks = 12 # ~3 seconds of silence needed to stop
+            max_total_chunks = 40  # ~10 seconds maximum recording time failsafe
+
+            async for message in websocket:
+                if not isinstance(message, bytes):
+                    continue
+
+                chunk = np.frombuffer(message, dtype=np.int16)
+
+                if not recording_command:
+                    self.iris.process_audio_chunk(chunk)
+                    if self.iris._wakeword_triggered:
+                        recording_command = True
+                        command_chunks = []
+                        silent_chunks = 0
+                        self.iris._wakeword_triggered = False
+                        print("\n🎤 Listening for command...")
+                else:
+                    command_chunks.append(chunk)
+                    
+                    # Calculate Root Mean Square (RMS) volume
+                    volume = np.sqrt(np.mean(chunk.astype(np.float32) ** 2))
+                    
+                    # DEBUG: This prints the volume so you can see your room's background noise level
+                    # If this prints 2000 when you are quiet, change the 1500 below to 2500.
+                    print(f"   [Volume: {volume:.0f}]", end="\r")
+
+                    if volume < 1500: # <-- TUNING KNOB: Increase this if it gets stuck
+                        silent_chunks += 1
+                    else:
+                        silent_chunks = 0
+
+                    # Stop if we hit enough silence OR if we've been recording for too long
+                    if silent_chunks > max_silent_chunks or len(command_chunks) > max_total_chunks:
+                        print("\n🛑 Silence detected. Processing audio...")
+                        recording_command = False
+                        
+                        # 🔒 LOCK the AI's ears so it doesn't get confused by background noise
+                        self.iris.is_thinking = True 
+                        
+                        silent_chunks = 0
+                        chunks_to_process = command_chunks[:]
+                        command_chunks = []
+
+                        def respond():
+                            try:
+                                command = self.iris.listen_for_command(chunks_to_process)
+                                if command:
+                                    self.iris.chat(command)
+                                else:
+                                    print("⚠️ No speech detected in command audio.")
+                            finally:
+                                # 🔓 UNLOCK the ears when completely done answering
+                                self.iris.is_thinking = False 
+                                print("\n✅ Iris is ready for the next command.")
+
+                        self.loop.run_in_executor(None, respond)
+
         finally:
-            self.clients.remove(websocket)
+            self.iris.websocket = None
+            self.clients.discard(websocket)
 
     async def _lerp_bone(self, bone_name, target_rotation, duration=0.3, steps=15):
         """
@@ -173,88 +239,11 @@ class IrisAvatar:
     async def _broadcast(self, message):
         if self.clients:
             await asyncio.gather(*(client.send(message) for client in self.clients))
-    
-    def animate_listen(self):
-        """Triggers the 'listening' pose animation."""
-        print("👂 Avatar is now listening...")
-        asyncio.run_coroutine_threadsafe(self._listen_pose_sequence(), self.loop)
-    
-    async def _listen_pose_sequence(self):
-        """Internal coroutine to smooth-transition into the listening pose."""
-        self.send_data({ 'expression': 'blinkRight', 'intensity': 1.0 })
-        self.send_data({ 'mouth': 0.2 })
-
-        await asyncio.gather(
-            self._lerp_bone('leftUpperArm',  {'z': -0.75}, duration=0.5),
-            self._lerp_bone('leftLowerArm',  {'z': -2.0},  duration=0.5),
-            self._lerp_bone('leftHand',      {'z': -4.5},  duration=0.5),
-            self._lerp_bone('rightUpperArm', {'z': -0.25}, duration=0.5),
-            self._lerp_bone('rightLowerArm', {'z': -2.5},  duration=0.5),
-            self._lerp_bone('rightHand',     {'z': 0.75, 'x': -1.0, 'y': -1.0}, duration=0.5),
-            self._lerp_bone('chest',         {'z': -0.25}, duration=0.6),
-            self._lerp_bone('leftLowerLeg',  {'x': -1.5}, duration=0.6),
-            self._lerp_bone('hips',          {'y': 0.75}, duration=0.6)
-        )
-    
-    def animate_unlisten(self):
-        """Resets the avatar from the listening pose back to neutral/idle."""
-        print("🔈 Avatar is stopping listening...")
-        asyncio.run_coroutine_threadsafe(self._unlisten_pose_sequence(), self.loop)
-
-    async def _unlisten_pose_sequence(self):
-        """Internal coroutine to smooth-transition back to idle."""
-        self.send_data({ 'expression': 'blinkRight', 'intensity': 0.0 })
-        self.send_data({ 'mouth': 0.0 })
-
-        bones_to_zero = ['leftHand', 'rightHand', 'chest', 'leftLowerLeg', 'hips', 'rightShoulder']
         
-        tasks = [
-            self._lerp_bone('rightLowerArm', {'z': 0.0, 'x': 0.0}, duration=0.8, steps=25),
-            self._lerp_bone('rightUpperArm', {'z': 1.2},           duration=0.8, steps=25),
-            self._lerp_bone('leftLowerArm',  {'z': 0.0, 'y': 0.0}, duration=0.5, steps=25),
-            self._lerp_bone('leftUpperArm',  {'z': -1.2},            duration=0.5, steps=25),
-        ]
-
-        for bone in bones_to_zero:
-            tasks.append(self._lerp_bone(bone, {'x': 0.0, 'y': 0.0, 'z': 0.0}, duration=0.7))
-
-        await asyncio.gather(*tasks)
-
-    def play(self, audio_data, sample_rate=24000):
-        self.speaking = True
-
-        if hasattr(audio_data, "cpu"):
-            audio_data = audio_data.cpu().numpy()
-        elif hasattr(audio_data, "numpy"):
-            audio_data = audio_data.numpy()
-
-        data = audio_data.astype(np.float32)
-
-        def callback(outdata, frames, time, status):
-            nonlocal data
-            if status:
-                print(status)
-            chunk_size = len(outdata)
-            chunk = data[:chunk_size]
-            outdata[:len(chunk)] = chunk.reshape(-1, 1)
-
-            if len(chunk) > 0:
-                volume = np.linalg.norm(chunk) / np.sqrt(len(chunk))
-                openness = np.clip(volume * 8.0, 0.0, 1.0)
-                self.send_data({"mouth": float(openness)})
-
-            data = data[chunk_size:]
-            if len(data) == 0:
-                raise sd.CallbackStop
-
-        with sd.OutputStream(samplerate=sample_rate, channels=1, callback=callback):
-            duration_ms = int(len(audio_data) / sample_rate * 1000)
-            sd.sleep(duration_ms + 100)
-
-        self.send_data({"mouth": 0.0})
-        self.speaking = False
-
 if __name__ == "__main__":
     avatar = IrisAvatar(port=8080)
-    bot = IrisAssistant(speaker=avatar)
-    bot.run_forever()
+    try:
+        while True:
+            time.sleep(1)
+    except KeyboardInterrupt:
+        print("Shutting down.")
