@@ -24,7 +24,14 @@ export class VRMController {
             VRMUtils.deepDispose(this.vrm.scene);
           }
 
+          // --- ADD THESE 3 LINES ---
+          VRMUtils.removeUnnecessaryVertices(gltf.scene);
+          VRMUtils.removeUnnecessaryJoints(gltf.scene);
+          
           this.vrm = gltf.userData.vrm;
+          VRMUtils.rotateVRM0(this.vrm); // Rotates old models to face the camera
+          // -------------------------
+
           this.vrm.scene.traverse(obj => { if (obj.isMesh) obj.castShadow = true; });
           this.scene.add(this.vrm.scene);
 

@@ -14,28 +14,22 @@ export class AudioManager {
     this._mouthCallback = null;
     this._micActive     = false;
 
-    // Must wait for user interaction to start AudioContext in modern browsers
-    const initAudio = () => {
-      this._init().then(() => {
-        // Success! Remove the event listeners so we don't re-init
-        document.removeEventListener('click', initAudio);
-        document.removeEventListener('touchstart', initAudio);
-        
-        // Update UI to show we are listening
-        this._onStateChange('idle'); 
-      }).catch(err => {
-        console.error('[Audio] Init failed:', err);
-        alert("Microphone access is required. Please check your browser URL bar and allow microphone permissions, then reload.");
-      });
-    };
-    
-    // Listen for the very first click anywhere on the page
-    document.addEventListener('click', initAudio);
-    document.addEventListener('touchstart', initAudio);
-    console.warn('[Audio] Waiting for user interaction (click anywhere) to request mic access...');
+    console.log('[Audio] Ready — call init() to request mic access.');
   }
 
   onMouth(cb) { this._mouthCallback = cb; }
+
+  async init() {
+    if (this._micCtx) return;   // already initialised — no-op
+    try {
+      await this._init();
+      this._onStateChange('idle');
+      console.log('[Audio] Mic initialised via Tap to Speak.');
+    } catch (err) {
+      console.error('[Audio] Init failed:', err);
+      alert('Microphone access is required. Please allow microphone permissions in your browser, then try again.');
+    }
+  }
 
   receiveAudio(arrayBuffer) {
     this._audioQueue.push(arrayBuffer);

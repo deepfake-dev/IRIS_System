@@ -67,6 +67,8 @@ class IrisAvatar:
                         silent_chunks = 0
                         self.iris._wakeword_triggered = False
                         print("\n🎤 Listening for command...")
+                        # Fire listening indicator immediately on wake word
+                        await websocket.send(json.dumps({"listening": True}))
                 else:
                     command_chunks.append(chunk)
                     
@@ -97,13 +99,62 @@ class IrisAvatar:
                         def respond():
                             try:
                                 command = self.iris.listen_for_command(chunks_to_process)
-                                if command:
-                                    self.iris.chat(command)
+
+                                NOISE_WORDS = {
+                                    "you", "the", "a", "uh", "um", "hmm", "hm",
+                                    "oh", "ah", "ok", "okay", "yeah", "yes", "no",
+                                    "bye", "hi", "hey", "thanks", "thank you",
+                                    "thank", "silence", "music", "applause", "laughter",
+                                }
+                                HALLUCINATIONS = {
+                                    "thank you", "thank you.", "thanks for watching",
+                                    "thanks for listening", "see you next time",
+                                    "please subscribe", "you", "bye bye",
+                                    "thank you very much", "okay",
+                                    "i'll see you in the next one",
+                                    "thank you for watching", "thanks for watching.",
+                                }
+                                GOODBYE_PHRASES = {
+                                    "goodbye", "good bye", "bye", "bye bye",
+                                    "see you", "see you later", "see ya",
+                                    "that's all", "thats all", "stop listening",
+                                    "go to sleep", "thank you goodbye",
+                                    "thanks goodbye", "i'm done", "im done",
+                                }
+
+                                words = command.lower().split() if command else []
+                                command_clean = command.strip().lower().rstrip(".!?,")
+
+                                is_noise = (
+                                    not command
+                                    or len(words) < 3
+                                    or set(words).issubset(NOISE_WORDS)
+                                    or command_clean in HALLUCINATIONS
+                                )
+                                is_goodbye = any(
+                                    phrase in command_clean
+                                    for phrase in GOODBYE_PHRASES
+                                )
+
+                                if is_goodbye:
+                                    print(f"👋 Goodbye detected: '{command}' — stopping listening.")
+                                    self.iris.speak("Goodbye! Feel free to ask me anything again anytime.")
+                                    if self.iris.websocket and self.iris.websocket_loop:
+                                        asyncio.run_coroutine_threadsafe(
+                                            self.iris.websocket.send(json.dumps({"listening": False})),
+                                            self.iris.websocket_loop
+                                        )
+                                elif is_noise:
+                                    print(f"⚠️ Ignored likely noise: '{command}' — waiting for wake word again.")
+                                    if self.iris.websocket and self.iris.websocket_loop:
+                                        asyncio.run_coroutine_threadsafe(
+                                            self.iris.websocket.send(json.dumps({"listening": False})),
+                                            self.iris.websocket_loop
+                                        )
                                 else:
-                                    print("⚠️ No speech detected in command audio.")
+                                    self.iris.chat(command)
                             finally:
-                                # 🔓 UNLOCK the ears when completely done answering
-                                self.iris.is_thinking = False 
+                                self.iris.is_thinking = False
                                 print("\n✅ Iris is ready for the next command.")
 
                         self.loop.run_in_executor(None, respond)
@@ -140,11 +191,13 @@ class IrisAvatar:
             if not self.clients or self.speaking:
                 continue
 
-            choice = random.choice(['wave', 'cross_arms'])
-            if choice == 'wave':
-                await self._idle_wave()
-            else:
-                await self._idle_cross_arms()
+            # await self._idle_wave()
+
+            # choice = random.choice(['wave', 'cross_arms'])
+            # if choice == 'wave':
+            #     await self._idle_wave()
+            # else:
+            #     await self._idle_cross_arms()
 
     async def _idle_wave(self):
         """Smooth waving idle animation."""
@@ -174,47 +227,6 @@ class IrisAvatar:
             self._lerp_bone('rightUpperArm', {'z': 1.2},           duration=0.8, steps=25),
             self._lerp_bone('leftLowerArm',  {'z': 0.0, 'y': 0.0}, duration=0.5, steps=25),
             self._lerp_bone('leftUpperArm',  {'z': -1.2},            duration=0.5, steps=25),
-        )
-
-        self.wave_animating = False
-
-    async def _idle_cross_arms(self):
-        """Relaxed crossed-arms idle animation."""
-        self.wave_animating = True
-
-        # 1. ENTER: Transition into crossed arms pose
-        self.send_data({'expression': 'relaxed', 'intensity': 1})
-        self.send_data({"expression": "happy", "intensity": 1.0})
-
-        await asyncio.gather(
-            self._lerp_bone('rightUpperArm', {'y': 1.35, 'z': 0.25},           duration=0.6, steps=20),
-            self._lerp_bone('leftUpperArm',  {'y': -1.25, 'z': -0.4, 'x': 0.0}, duration=0.6, steps=20),
-            self._lerp_bone('leftLowerArm',  {'y': -2.0},                        duration=0.6, steps=20),
-            self._lerp_bone('rightLowerArm', {'y': 1.8, 'z': -0.15},             duration=0.6, steps=20),
-            self._lerp_bone('leftHand',      {'z': -0.25},                       duration=0.6, steps=20),
-            self._lerp_bone('rightHand',     {'z': -0.5, 'x': 0.5, 'y': -0.35}, duration=0.6, steps=20),
-            self._lerp_bone('leftUpperLeg',  {'x': 0.15},                        duration=0.6, steps=20),
-            self._lerp_bone('leftLowerLeg',  {'x': -0.1},                        duration=0.6, steps=20),
-            self._lerp_bone('head',          {'z': -0.25},                       duration=0.6, steps=20),
-        )
-
-        # 2. HOLD: Linger in the pose for a natural beat
-        await asyncio.sleep(random.uniform(3.0, 6.0))
-
-        # 3. RESET: Return to neutral
-        self.send_data({'expression': 'relaxed', 'intensity': 0})
-        self.send_data({"expression": "happy", "intensity": 0})
-
-        await asyncio.gather(
-            self._lerp_bone('rightUpperArm', {'y': 0.0, 'z': 1.2},            duration=0.8, steps=25),
-            self._lerp_bone('leftUpperArm',  {'y': 0.0, 'z': -1.2, 'x': 0.0},  duration=0.8, steps=25),
-            self._lerp_bone('leftLowerArm',  {'y': 0.0, 'z': 0.0},             duration=0.8, steps=25),
-            self._lerp_bone('rightLowerArm', {'y': 0.0, 'z': 0.0},             duration=0.8, steps=25),
-            self._lerp_bone('leftHand',      {'z': 0.0},                        duration=0.8, steps=25),
-            self._lerp_bone('rightHand',     {'z': 0.0, 'x': 0.0, 'y': 0.0},  duration=0.8, steps=25),
-            self._lerp_bone('leftUpperLeg',  {'x': 0.0},                        duration=0.8, steps=25),
-            self._lerp_bone('leftLowerLeg',  {'x': 0.0},                        duration=0.8, steps=25),
-            self._lerp_bone('head',          {'z': 0.0},                        duration=0.8, steps=25),
         )
 
         self.wave_animating = False

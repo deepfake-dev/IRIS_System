@@ -37,6 +37,18 @@ export class SignalHandler {
       window.dispatchEvent(new CustomEvent('iris:listening', { detail: data.listening }));
     }
 
+    // ── User query text (transcribed speech) ─────────────────────────────
+    // Python sends: {"user_query": "what are the enrollment steps?"}
+    if (data.user_query !== undefined) {
+      if (typeof window.setUserQuery === 'function') window.setUserQuery(data.user_query);
+    }
+
+    // ── Streaming AI text chunk ───────────────────────────────────────────
+    // Python sends: {"ai_chunk": "some text"} for each token
+    if (data.ai_chunk !== undefined) {
+      window.dispatchEvent(new CustomEvent('iris:chunk', { detail: data.ai_chunk }));
+    }
+
     // ── Expression ────────────────────────────────────────────────────────
     if (data.expression !== undefined) {
       const intensity = typeof data.intensity === 'number' ? data.intensity : 1.0;

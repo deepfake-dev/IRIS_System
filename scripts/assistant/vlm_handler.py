@@ -1,4 +1,3 @@
-# pip install chromadb sentence-transformers
 import asyncio
 import json
 import numpy as np
@@ -15,7 +14,7 @@ os.environ["HF_HUB_DISABLE_SYMLINKS_WARNING"] = "1"
 
 from openwakeword.model import Model
 from faster_whisper import WhisperModel
-from sentence_transformers import SentenceTransformer
+from sentence_transformers import SentenceTransformer, CrossEncoder
 from kokoro_onnx import Kokoro
 
 openwakeword.utils.download_models()
@@ -29,12 +28,15 @@ class IrisAssistant:
                  chroma_path="databases/chroma_db",
                  collection_name="batstateu_rag",
                  embed_model="BAAI/bge-small-en-v1.5",
-                 rag_top_k=5,
+                 rerank_model="cross-encoder/ms-marco-MiniLM-L-6-v2",
+                 rag_initial_top_k=30,
+                 rag_final_top_k=5,
                  websocket=None,
                  websocket_loop=None):
 
         self.tts_voice = tts_voice
-        self.rag_top_k = rag_top_k
+        self.rag_initial_top_k = rag_initial_top_k
+        self.rag_final_top_k = rag_final_top_k
         self.client = OpenAI(
             base_url="http://localhost:8001/v1",
             api_key="sk-no-key-required"
@@ -78,9 +80,13 @@ class IrisAssistant:
         )
 
         # --- RAG / Chroma ---
-        print(f"Loading embedding model: {embed_model}")
+        print(f"Loading Embedding Model: {embed_model}")
         self.embed_model = SentenceTransformer(embed_model)
 
+        print(f"Loading Lightweight Reranker Model: {rerank_model}")
+        self.reranker = CrossEncoder(rerank_model, max_length=512)
+
+        # --- Chroma DB ---
         print(f"Opening Chroma database at: {chroma_path}")
         self.chroma_client = chromadb.PersistentClient(path=chroma_path)
         self.collection = self.chroma_client.get_collection(collection_name)
@@ -119,20 +125,28 @@ class IrisAssistant:
                 break
 
     def listen_for_command(self, pcm_chunks):
-        if self.websocket and self.websocket_loop:
-            asyncio.run_coroutine_threadsafe(
-                self.websocket.send(json.dumps({"listening": True})),
-                self.websocket_loop
-            )
-
         audio_flat = np.concatenate(pcm_chunks).flatten().astype(np.float32) / 32768.0
 
         print("🧠 Whisper transcribing...")
-        segments, _ = self.whisper.transcribe(audio_flat, beam_size=5, language="en")
+        segments, _ = self.whisper.transcribe(
+            audio_flat,
+            beam_size=5,
+            language="en",
+            no_speech_threshold=0.6,          # suppress output if silence probability > 60%
+            condition_on_previous_text=False,  # prevents repeating hallucinated phrases
+            temperature=0.0,                   # greedy decoding — less creative hallucination
+        )
         text = "".join(seg.text for seg in segments).strip()
         print(f"📝 Heard: {text}")
 
         if self.websocket and self.websocket_loop:
+            # Show transcribed text in user bubble
+            if text:
+                asyncio.run_coroutine_threadsafe(
+                    self.websocket.send(json.dumps({"user_query": text})),
+                    self.websocket_loop
+                )
+            # Tell frontend listening is done — show processing indicator
             asyncio.run_coroutine_threadsafe(
                 self.websocket.send(json.dumps({"listening": False})),
                 self.websocket_loop
@@ -141,28 +155,35 @@ class IrisAssistant:
         return text
 
     def _retrieve(self, query):
-        q_vec = self.embed_model.encode(
-            [query],
-            normalize_embeddings=True
-        ).tolist()
-
+        # 1. Broad Vector Search
+        q_vec = self.embed_model.encode([query], normalize_embeddings=True).tolist()
+        
         results = self.collection.query(
             query_embeddings=q_vec,
-            n_results=self.rag_top_k
+            n_results=self.rag_initial_top_k
         )
 
         docs = results.get("documents", [[]])[0]
         metas = results.get("metadatas", [[]])[0]
 
+        if not docs:
+            return "No relevant campus information found."
+
+        # 2. Fast Cross-Encoder Reranking
+        cross_inp = [[query, doc] for doc in docs]
+        
+        # Batch size of 32 handles the mini-LM instantly without crashing
+        scores = self.reranker.predict(cross_inp, batch_size=32) 
+        
+        ranked_results = sorted(zip(scores, docs, metas), key=lambda x: x[0], reverse=True)
+        top_results = ranked_results[:self.rag_final_top_k]
+
+        # 3. Format Output
         formatted_chunks = []
-        for i, doc in enumerate(docs):
-            meta = metas[i] if i < len(metas) else {}
+        for score, doc, meta in top_results:
             source = meta.get("source_file", "unknown_source")
             doc_id = meta.get("doc_id", "unknown_doc")
-
-            formatted_chunks.append(
-                f"[Source: {source} | Doc: {doc_id}]\n{doc}"
-            )
+            formatted_chunks.append(f"[Source: {source} | Doc: {doc_id}]\n{doc}")
 
         return "\n\n".join(formatted_chunks)
 
@@ -211,16 +232,24 @@ class IrisAssistant:
 
         self.is_thinking = True
         context = self._retrieve(user_text)
-        print(f"📚 Retrieved {self.rag_top_k} chunks from Chroma.")
+        print(f"📚 Retrieved {self.rag_final_top_k} chunks from Chroma.")
 
         iris_context = (
-            "You are Iris, an AI assistant for Batangas State University - "
-            "The National Engineering University - Alangilan Campus. "
-            "Answer in pure text form, as if it will be spoken aloud, and do not use Markdown. "
-            "You never use emojis or emoticons. "
-            "Use the retrieved campus documents as your main source of truth. "
-            "If the answer is not found in the retrieved context, say that you are not sure based on the available campus documents. "
-            "Do not invent office names, procedures, schedules, requirements, or fees."
+            """
+        You are Iris, an AI assistant for Batangas State University - The National Engineering University - Alangilan Campus. 
+        Your output will be read aloud by a Text-to-Speech engine. You must answer in a natural, conversational, pure-text format. You are strictly forbidden from using Markdown (no asterisks, bolding, or hashtags), bullet points, emojis, or emoticons.
+
+        CORE KNOWLEDGE RULES:
+        1. STRICT GROUNDING: Use the retrieved campus documents as your absolute and only source of truth. 
+        2. MISSING INFORMATION: If the answer is not explicitly found in the retrieved context, you MUST start your response with the exact word "CRITICAL:" followed by a clear, spoken statement that you do not have that information based on the available campus documents. 
+        3. NO HALLUCINATION: Never invent, assume, or guess office names, procedures, schedules, requirements, personnel, or fees.
+
+        SPECIAL TOOL RULE: DEEPFAKE DETECTION
+        You have access to a Deepfake and Provenance checking tool. 
+        - TRIGGER: Apply this rule ONLY IF the user explicitly asks about "deepfake detection," "provenance checking," or verifying if media is "AI-generated."
+        - FORBIDDEN: NEVER mention this tool, its capabilities, or its link in response to unrelated queries.
+        - ACTION: When explicitly asked, you must include this exact phrasing in your response: "You can check the authenticity of your media using our Deepfake Detector tool at the following link: http://localhost:4321"
+        """
         )
 
         combined_payload = (
@@ -239,9 +268,14 @@ class IrisAssistant:
             response_stream = self.client.chat.completions.create(
                 model="qwen3-vl",
                 messages=[{"role": "user", "content": combined_payload}],
-                temperature=0.2,
                 stream=True,
-                max_tokens=512
+                temperature=0.2,
+                max_tokens=512,
+                frequency_penalty=1.2,
+                presence_penalty=0.6,
+                extra_body={
+                    "repeat_penalty": 1.15,
+                },
             )
 
             for chunk in response_stream:
@@ -250,6 +284,13 @@ class IrisAssistant:
                     print(new_text, end="", flush=True)
                     full_response += new_text
                     sentence_buffer += new_text
+
+                    # Stream each token to the frontend immediately
+                    if self.websocket and self.websocket_loop:
+                        asyncio.run_coroutine_threadsafe(
+                            self.websocket.send(json.dumps({"ai_chunk": new_text})),
+                            self.websocket_loop
+                        )
 
                     if any(char in new_text for char in ['.', '!', '?', '\n']):
                         clean_sentence = sentence_buffer.strip()

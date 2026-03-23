@@ -3,35 +3,18 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>Campus AI Assistant</title>
+  <title>IRIS — Campus AI Assistant</title>
   <meta http-equiv="Content-Security-Policy"
         content="default-src 'self';
-                 script-src 'self' https://cdn.jsdelivr.net https://fonts.googleapis.com 'unsafe-inline';
-                 style-src  'self' https://fonts.googleapis.com https://fonts.gstatic.com 'unsafe-inline';
-                 font-src   https://fonts.gstatic.com;
+                 script-src 'self' https://cdn.jsdelivr.net https://fonts.cdnfonts.com 'unsafe-inline';
+                 style-src  'self' https://fonts.cdnfonts.com 'unsafe-inline';
+                 font-src   https://fonts.cdnfonts.com data:;
                  connect-src 'self' blob: ws://localhost:8080 wss://localhost:8443;
                  img-src 'self' data: blob:;
                  worker-src blob:;">
   <link rel="icon" type="image/png" href="./icon.png">
-  <link href="https://fonts.googleapis.com/css2?family=Playfair+Display:wght@600;700&family=DM+Sans:wght@300;400;500;600&family=DM+Mono:wght@400;500&display=swap" rel="stylesheet">
+  <link href="https://fonts.cdnfonts.com/css/hahmlet" rel="stylesheet">
   <link rel="stylesheet" href="./css/kiosk.css">
-  <style>
-    /* New state styles for the wake pill */
-    .wake-pill.active {
-      border-color: #a347e5;
-      background: rgba(163, 71, 229, 0.1);
-      box-shadow: 0 0 15px rgba(163, 71, 229, 0.4);
-    }
-    .wake-pill.active .wake-status { color: #a347e5; }
-    
-    .wake-pill.processing {
-      border-color: #e5a347;
-      background: rgba(229, 163, 71, 0.1);
-      box-shadow: 0 0 15px rgba(229, 163, 71, 0.4);
-    }
-    .wake-pill.processing .wake-status { color: #e5a347; }
-    .wake-pill.processing .w-bar { animation: pulse 1s infinite alternate; background: #e5a347; }
-  </style>
 </head>
 <body>
 
@@ -40,53 +23,83 @@
 
 <div class="kiosk">
 
-  <!-- TOP BAR -->
+  <!-- ── TOP BAR ── -->
   <div class="topbar">
     <div class="topbar-left">
       <div class="school-seal">
-        <img src="./logo.png" alt="Logo" style="width:36px;height:36px;border-radius:50%;object-fit:cover;">
+        <img src="./logo.png" alt="Logo">
       </div>
       <div class="topbar-divider"></div>
       <div class="school-seal">
-        <img src="./icon.png" alt="Icon" style="width:36px;height:36px;border-radius:50%;object-fit:cover;">
+        <img src="./icon.png" alt="Icon">
       </div>
-      <div>
+      <div class="school-info">
         <div class="school-name">IRIS</div>
         <div class="school-tagline">Intelligent Retrieval-Augmented Institutional Support Bot</div>
       </div>
     </div>
-    <div class="topbar-center">
-      <div class="status-pill">
-        <div class="status-dot"></div>
-        Online
-      </div>
-    </div>
+
+    <div class="topbar-center"></div>
+
     <div class="topbar-right">
-      <div class="clock" id="clock">--:--</div>
-      <div id="date-display">---</div>
+      <button class="tap-speak-btn" id="tapSpeakBtn" onclick="toggleTapToSpeak()">
+        <div class="tap-speak-dot"></div>
+        <span id="tapSpeakLabel">Enable Microphone</span>
+      </button>
     </div>
   </div>
 
-  <!-- MAIN -->
+  <!-- ── MAIN ── -->
   <div class="main">
 
     <!-- AVATAR -->
     <div class="avatar-col">
-      <div class="orbit-ring orbit-1"></div>
-      <div class="orbit-ring orbit-2"></div>
-      <div class="avatar-glow"></div>
       <canvas id="vrm-canvas"></canvas>
       <div id="vrm-loading">
         <div class="vrm-spinner"></div>
         <div class="vrm-loading-text">Loading model...</div>
       </div>
+      <!-- Listening ring -->
+      <div class="avatar-listen-ring" id="avatarListenRing"></div>
+      <!-- Listening label -->
+      <div class="avatar-listen-label" id="avatarListenLabel">
+        <div class="listen-bars">
+          <div class="l-bar"></div>
+          <div class="l-bar"></div>
+          <div class="l-bar"></div>
+          <div class="l-bar"></div>
+          <div class="l-bar"></div>
+        </div>
+        <span class="listen-label-text">Listening</span>
+        <div class="listen-bars">
+          <div class="l-bar"></div>
+          <div class="l-bar"></div>
+          <div class="l-bar"></div>
+          <div class="l-bar"></div>
+          <div class="l-bar"></div>
+        </div>
+      </div>
+      <div class="avatar-label">
+        <div class="avatar-label-name">Iris</div>
+        <div class="avatar-label-tag">AI Campus Assistant</div>
+      </div>
     </div>
 
     <!-- CONVERSATION -->
     <div class="conv-col">
-
       <div class="bubble-section">
-        <div class="bubble-label">Iris</div>
+        <div class="bubble-label">Conversation</div>
+
+        <!-- USER MESSAGE -->
+        <div class="user-bubble" id="userBubble" style="display:none;">
+          <div class="user-bubble-header">
+            <div class="user-avatar-pill">U</div>
+            <div class="user-name">You</div>
+          </div>
+          <div class="user-bubble-body" id="userText"></div>
+        </div>
+
+        <!-- AI RESPONSE -->
         <div class="speech-bubble">
           <div class="bubble-ai-header">
             <div class="ai-avatar-pill">A</div>
@@ -102,79 +115,30 @@
             </div>
           </div>
           <div class="bubble-body" id="aiText"></div>
-          <div class="bubble-meta">
-            <div class="meta-tags">
-              <span class="meta-tag">Verified</span>
-              <span class="meta-tag" id="topicTag">General</span>
+          <div class="wake-prompt" id="wakePrompt">
+            Microphone is active. Say the wake word to ask a question.
+            <strong>"Hey Iris"</strong>
+            <div class="wake-prompt-dots">
+              <div class="wp-dot"></div>
+              <div class="wp-dot"></div>
+              <div class="wp-dot"></div>
             </div>
           </div>
-        </div>
-      </div>
-
-      <div class="quick-section">
-        <div class="qs-label">Frequently Asked</div>
-        <div class="quick-grid">
-          <button class="q-btn" data-query="What are the steps for enrollment and registration?">
-            <span class="q-icon">📋</span>Enrollment
-          </button>
-          <button class="q-btn" data-query="How do I get to the Registrar's Office?">
-            <span class="q-icon">🗺️</span>Directions
-          </button>
-          <button class="q-btn" data-query="What services are covered under the Citizen's Charter?">
-            <span class="q-icon">📜</span>Citizen's Charter
-          </button>
-          <button class="q-btn" data-query="What are the requirements for requesting official documents?">
-            <span class="q-icon">📄</span>Documents
-          </button>
-          <button class="q-btn" data-query="What are the office hours and contact numbers of different campus offices?">
-            <span class="q-icon">🏢</span>Office Hours
-          </button>
-          <button class="q-btn" data-query="What are the scholarship programs available?">
-            <span class="q-icon">🎓</span>Scholarships
-          </button>
-          <button class="q-btn" data-query="How can I pay my tuition and fees?">
-            <span class="q-icon">💳</span>Payments
-          </button>
-          <button class="q-btn" data-query="What are the upcoming campus events and announcements?">
-            <span class="q-icon">📣</span>Announcements
-          </button>
-        </div>
-      </div>
-
-      <!-- Wake word indicator -->
-      <div class="wake-section">
-        <div class="wake-pill" id="wake-pill">
-          <div class="wake-ring-wrap">
-            <div class="wake-ring"></div>
-            <div class="wake-ring"></div>
-            <div class="wake-ring"></div>
-            <div class="wake-core"></div>
+          <!-- QR Code panel — shown when response contains a URL -->
+          <div class="qr-panel" id="qrPanel" style="display:none;">
+            <div class="qr-label">Scan to open</div>
+            <div id="qrCode"></div>
+            <div class="qr-url" id="qrUrl"></div>
           </div>
-          <div class="wake-bars">
-            <div class="w-bar"></div>
-            <div class="w-bar"></div>
-            <div class="w-bar"></div>
-            <div class="w-bar"></div>
-            <div class="w-bar"></div>
-            <div class="w-bar"></div>
-            <div class="w-bar"></div>
-          </div>
-          <div class="wake-text" id="wake-text">Say <strong>"Hey Iris"</strong> to start speaking</div>
-          <div class="wake-status" id="wake-status">Listening</div>
         </div>
       </div>
-
     </div>
+
   </div>
 
-  <!-- BOTTOM BAR -->
+  <!-- ── BOTTOM BAR ── -->
   <div class="bottombar">
     <div class="bb-left">Queries today: <strong id="qCount">0</strong></div>
-    <div class="bb-center">
-      <button class="lang-btn active" data-lang="EN">EN</button>
-      <button class="lang-btn" data-lang="FIL">FIL</button>
-    </div>
-    <div class="bb-right">Session: <strong id="session">—</strong></div>
   </div>
 
 </div>
@@ -183,7 +147,7 @@
 <div id="dev-anim-btn">
   <label id="dev-fbx-label">
     <input type="file" accept=".fbx" id="dev-fbx-input">
-    🎬 LOAD FBX [DEV]
+    🎬 Load FBX [Dev]
   </label>
   <div id="dev-anim-label">no animation loaded</div>
 </div>
@@ -199,7 +163,86 @@
 }
 </script>
 
-<script type="module" src="./js/main.js"></script>
+<script>
+  /* ── Tap to Speak ── */
+  var tapActive = false;
+  function toggleTapToSpeak() {
+    tapActive = !tapActive;
+    var prompt = document.getElementById('wakePrompt');
+    var aiText = document.getElementById('aiText');
 
+    if (tapActive) {
+      // Trigger mic permission dialog on first tap
+      if (window._audioMgr) window._audioMgr.init();
+      // Tell main.js to switch to listening state
+      if (typeof setAvatarState === 'function') setAvatarState('listening');
+      if (!aiText.textContent.trim() && prompt) prompt.style.display = 'block';
+    } else {
+      if (typeof setAvatarState === 'function') setAvatarState('idle');
+      if (prompt) prompt.style.display = 'none';
+    }
+  }
+
+  /* Auto-hide wake prompt when AI responds */
+  var aiTextEl = document.getElementById('aiText');
+  if (aiTextEl) {
+    new MutationObserver(function () {
+      if (aiTextEl.textContent.trim()) {
+        var p = document.getElementById('wakePrompt');
+        if (p) p.style.display = 'none';
+      }
+    }).observe(aiTextEl, { childList: true, subtree: true, characterData: true });
+  }
+
+  /* ── User query bubble ── */
+  window.setUserQuery = function (text) {
+    var bubble   = document.getElementById('userBubble');
+    var userText = document.getElementById('userText');
+    if (!text || !text.trim()) return;
+    userText.textContent = text.trim();
+    bubble.style.display = 'block';
+    var p = document.getElementById('wakePrompt');
+    if (p) p.style.display = 'none';
+  };
+  document.addEventListener('userQuery', function (e) {
+    if (e.detail && e.detail.text) window.setUserQuery(e.detail.text);
+  });
+</script>
+
+<script src="https://cdn.jsdelivr.net/npm/qrcodejs@1.0.0/qrcode.min.js"></script>
+
+<style>
+  .qr-panel {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: 8px;
+    padding: 16px;
+    border-top: 1px solid var(--light, #e0e0e0);
+    background: var(--surface, #f5f5f5);
+    flex-shrink: 0;
+  }
+  .qr-label {
+    font-family: var(--font, serif);
+    font-size: clamp(9px, 1vw, 11px);
+    letter-spacing: 3px;
+    text-transform: uppercase;
+    color: var(--muted, #555);
+  }
+  #qrCode canvas {
+    border: 4px solid #fff;
+    border-radius: 4px;
+  }
+  .qr-url {
+    font-family: monospace;
+    font-size: clamp(10px, 1.1vw, 12px);
+    color: var(--blue, #191970);
+    word-break: break-all;
+    text-align: center;
+    max-width: 220px;
+  }
+</style>
+
+<script type="module" src="./js/main.js"></script>
 </body>
 </html>

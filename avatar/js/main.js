@@ -104,6 +104,7 @@ const audioMgr = new AudioManager(
 );
 audioMgr.onMouth(v => vrmCtrl.setMouth(v));
 signalHandler.audioMgr = audioMgr;
+window._audioMgr = audioMgr;
 
 let ws;
 try {
@@ -125,45 +126,102 @@ try {
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
-// UI — clock, session, typewriter, processQuery, quick buttons, lang, wake pill
+// UI — typewriter, processQuery, quick buttons, wake pill
 // ─────────────────────────────────────────────────────────────────────────────
 
-// Clock & date
+// Safe getter — returns null silently if element doesn't exist
+const el = id => document.getElementById(id);
+
+// Clock & date (elements may not exist in updated UI — guard them)
 function tick() {
   const now = new Date();
-  document.getElementById('clock').textContent =
-    now.toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit' });
-  document.getElementById('date-display').textContent =
-    now.toLocaleDateString('en-US', { weekday: 'short', month: 'short', day: 'numeric' });
+  const clockEl = el('clock');
+  const dateEl  = el('date-display');
+  if (clockEl) clockEl.textContent = now.toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit' });
+  if (dateEl)  dateEl.textContent  = now.toLocaleDateString('en-US', { weekday: 'short', month: 'short', day: 'numeric' });
 }
 tick();
 setInterval(tick, 1000);
 
-// Session ID
-document.getElementById('session').textContent =
-  'KSK-' + Math.random().toString(36).slice(2, 6).toUpperCase();
+// Session ID (element may not exist)
+const sessionEl = el('session');
+if (sessionEl) sessionEl.textContent = 'KSK-' + Math.random().toString(36).slice(2, 6).toUpperCase();
 
 let qCount = 0;
+
+// ── Avatar state: idle / listening ───────────────────────────────────────────
+function setAvatarState(state) {
+  const ring  = el('avatarListenRing');
+  const label = el('avatarListenLabel');
+  const tapBtn   = el('tapSpeakBtn');
+  const tapLabel = el('tapSpeakLabel');
+
+  if (state === 'listening') {
+    if (ring)  ring.classList.add('active');
+    if (label) label.classList.add('active');
+    if (tapBtn)   tapBtn.classList.add('active');
+    if (tapLabel) tapLabel.textContent = 'Listening...';
+  } else {
+    if (ring)  ring.classList.remove('active');
+    if (label) label.classList.remove('active');
+    if (tapBtn)   tapBtn.classList.remove('active');
+    if (tapLabel) tapLabel.textContent = 'Tap to Speak';
+  }
+}
+function showUserQuery(text) {
+  const bubble   = el('userBubble');
+  const userText = el('userText');
+  if (!bubble || !userText) return;
+  userText.textContent = text.trim();
+  bubble.style.display = 'block';
+  // hide wake prompt once user has spoken
+  const prompt = el('wakePrompt');
+  if (prompt) prompt.style.display = 'none';
+}
+
+// ── Listening indicator in the AI bubble + avatar state ──────────────────────
+function showListeningIndicator(active) {
+  const aiEl  = el('aiText');
+  const ind   = el('typingInd');
+
+  setAvatarState(active ? 'listening' : 'idle');
+
+  if (active) {
+    if (aiEl && !aiEl.dataset.hasResponse) {
+      aiEl.innerHTML =
+        '<div style="display:flex;align-items:center;gap:10px;padding:4px 0;opacity:.7;">' +
+        '<span style="font-style:italic;font-size:14px;letter-spacing:1px;">Listening</span>' +
+        '<span style="display:flex;gap:4px;align-items:center;">' +
+        '<span class="l-dot"></span><span class="l-dot"></span><span class="l-dot"></span>' +
+        '</span></div>';
+    }
+  } else {
+    if (aiEl && !aiEl.dataset.hasResponse) aiEl.innerHTML = '';
+  }
+}
 
 // Typewriter — animates the AI speech bubble text
 let typeTimer = null;
 function typeText(text) {
-  const el = document.getElementById('aiText');
-  el.innerHTML = '';
+  const aiEl = el('aiText');
+  if (!aiEl) return;
+  aiEl.dataset.hasResponse = '1'; // mark so listening indicator doesn't clear it
+  aiEl.innerHTML = '';
   let i = 0;
   clearInterval(typeTimer);
   typeTimer = setInterval(() => {
     if (i < text.length) {
-      el.innerHTML = text.slice(0, ++i) + '<span class="cursor"></span>';
+      aiEl.innerHTML = text.slice(0, ++i) + '<span class="cursor"></span>';
     } else {
-      el.innerHTML = text;
+      aiEl.innerHTML = text;
       clearInterval(typeTimer);
     }
   }, 18);
 }
 
 function setTopic(topic) {
-  document.getElementById('topicTag').textContent = topic;
+  const topicEl = el('topicTag');
+  if (topicEl) topicEl.textContent = topic;
 }
 
 // Greeting on load
@@ -175,21 +233,28 @@ async function ask(text) {
 
 async function processQuery(text) {
   qCount++;
-  document.getElementById('qCount').textContent = qCount;
+  const qCountEl = el('qCount');
+  if (qCountEl) qCountEl.textContent = qCount;
 
-  const ind = document.getElementById('typingInd');
-  ind.style.display = 'flex';
-  document.getElementById('aiText').innerHTML =
-    '<span style="color:var(--text-dimmer);font-style:italic;font-size:15px">Retrieving information from campus knowledge base…</span>';
+  // Show what the user said in the user bubble
+  showUserQuery(text);
+
+  // Reset hasResponse flag for the new query
+  const aiEl = el('aiText');
+  if (aiEl) delete aiEl.dataset.hasResponse;
+
+  const ind = el('typingInd');
+  if (ind)  ind.style.display = 'flex';
+  if (aiEl) aiEl.innerHTML = '<span style="font-style:italic;opacity:.6;font-size:14px">Retrieving information from campus knowledge base…</span>';
 
   const t = text.toLowerCase();
-  if      (t.includes('enrol')    || t.includes('registr'))                   setTopic('Enrollment');
+  if      (t.includes('enrol')    || t.includes('registr'))                      setTopic('Enrollment');
   else if (t.includes('map')      || t.includes('direct') || t.includes('where')) setTopic('Navigation');
-  else if (t.includes('charter')  || t.includes('service'))                   setTopic("Citizen's Charter");
-  else if (t.includes('document') || t.includes('certif') || t.includes('tor')) setTopic('Documents');
-  else if (t.includes('scholar'))                                              setTopic('Scholarship');
-  else if (t.includes('pay')      || t.includes('tuition') || t.includes('fee')) setTopic('Finance');
-  else if (t.includes('event')    || t.includes('announc'))                   setTopic('Announcements');
+  else if (t.includes('charter')  || t.includes('service'))                       setTopic("Citizen's Charter");
+  else if (t.includes('document') || t.includes('certif') || t.includes('tor'))   setTopic('Documents');
+  else if (t.includes('scholar'))                                                  setTopic('Scholarship');
+  else if (t.includes('pay')      || t.includes('tuition') || t.includes('fee'))  setTopic('Finance');
+  else if (t.includes('event')    || t.includes('announc'))                        setTopic('Announcements');
   else setTopic('General');
 
   try {
@@ -200,16 +265,16 @@ async function processQuery(text) {
     });
     const data = await res.json();
     if (!res.ok) throw new Error(data.error || 'Server error');
-    ind.style.display = 'none';
+    if (ind) ind.style.display = 'none';
     typeText(data.reply);
   } catch (e) {
-    ind.style.display = 'none';
+    if (ind) ind.style.display = 'none';
     typeText("I'm currently unable to connect to the knowledge base. Please approach the information desk or the Registrar's Office for assistance. Thank you for your patience.");
     console.error('[API]', e);
   }
 }
 
-// Quick-action buttons — wired via data-query, no inline onclick in HTML
+// Quick-action buttons (may not exist if removed from HTML)
 document.querySelectorAll('.q-btn').forEach(btn => {
   btn.addEventListener('click', () => {
     const query = btn.dataset.query;
@@ -217,7 +282,7 @@ document.querySelectorAll('.q-btn').forEach(btn => {
   });
 });
 
-// Language buttons
+// Language buttons (may not exist if removed from HTML)
 document.querySelectorAll('.lang-btn').forEach(btn => {
   btn.addEventListener('click', () => {
     document.querySelectorAll('.lang-btn').forEach(b => b.classList.remove('active'));
@@ -225,40 +290,123 @@ document.querySelectorAll('.lang-btn').forEach(btn => {
   });
 });
 
-// Wake pill — reacts to signals from SignalHandler
-const wakePill   = document.getElementById('wake-pill');
-const wakeText   = document.getElementById('wake-text');
-const wakeStatus = document.getElementById('wake-status');
+// Wake pill — guard all three elements since they may have been removed
+const wakePill   = el('wake-pill');
+const wakeText   = el('wake-text');
+const wakeStatus = el('wake-status');
 
 window.addEventListener('iris:wakeword', () => {
-  wakePill.classList.add('active');
-  wakeStatus.textContent = 'Detected!';
-  setTimeout(() => { wakeStatus.textContent = 'Listening'; }, 1000);
+  _responseStarted = false;
+  hideQR();
+  if (wakePill)   wakePill.classList.add('active');
+  if (wakeStatus) wakeStatus.textContent = 'Detected!';
+  setTimeout(() => { if (wakeStatus) wakeStatus.textContent = 'Listening'; }, 1000);
 });
 
 window.addEventListener('iris:listening', e => {
+  showListeningIndicator(!!e.detail);
+
   if (e.detail) {
-    wakePill.classList.add('active');
-    wakeText.innerHTML = 'Listening…';
-    wakeStatus.textContent = 'Active';
+    if (wakePill)   wakePill.classList.add('active');
+    if (wakeText)   wakeText.innerHTML = 'Listening…';
+    if (wakeStatus) wakeStatus.textContent = 'Active';
   } else {
-    wakePill.classList.remove('active');
-    wakeText.innerHTML = 'Say <strong>"Hey Iris"</strong> to start speaking';
-    wakeStatus.textContent = 'Listening';
+    // Listening ended — show processing placeholder
+    const ind  = el('typingInd');
+    const aiEl = el('aiText');
+    if (ind)  ind.style.display = 'flex';
+    if (aiEl) {
+      delete aiEl.dataset.hasResponse;
+      aiEl.innerHTML = '<span style="font-style:italic;opacity:.6;font-size:14px">Retrieving from campus knowledge base…</span>';
+    }
+    if (wakePill)   wakePill.classList.remove('active');
+    if (wakeText)   wakeText.innerHTML = 'Say <strong>"Hey Iris"</strong> to start speaking';
+    if (wakeStatus) wakeStatus.textContent = 'Listening';
   }
 });
 
 window.addEventListener('iris:audiostate', e => {
   switch (e.detail) {
     case 'speaking':
-      wakeStatus.textContent = 'Speaking';
+      if (wakeStatus) wakeStatus.textContent = 'Speaking';
+      showListeningIndicator(false);
       break;
     case 'listening':
-      wakeStatus.textContent = 'Active';
+      if (wakeStatus) wakeStatus.textContent = 'Active';
+      showListeningIndicator(true);
       break;
     default:
-      wakeStatus.textContent = 'Listening';
-      wakePill.classList.remove('active');
+      if (wakeStatus) wakeStatus.textContent = 'Listening';
+      if (wakePill)   wakePill.classList.remove('active');
+      showListeningIndicator(false);
+  }
+});
+
+// ── QR code helpers ───────────────────────────────────────────────────────────
+const URL_REGEX = /(https?:\/\/[^\s]+)/g;
+let _lastQRUrl  = null;
+
+function showQR(url) {
+  if (_lastQRUrl === url) return;   // already showing this URL
+  _lastQRUrl = url;
+
+  const panel  = el('qrPanel');
+  const qrDiv  = el('qrCode');
+  const qrUrl  = el('qrUrl');
+  if (!panel || !qrDiv) return;
+
+  qrDiv.innerHTML = '';
+  // QRCode is a UMD global loaded via the <script> tag in index.html
+  if (typeof QRCode === 'undefined') {
+    console.warn('[QR] QRCode library not loaded');
+    return;
+  }
+  new QRCode(qrDiv, {
+    text:          url,
+    width:         160,
+    height:        160,
+    colorDark:     '#191970',
+    colorLight:    '#ffffff',
+    correctLevel:  QRCode.CorrectLevel.M,
+  });
+  if (qrUrl) qrUrl.textContent = url;
+  panel.style.display = 'flex';
+}
+
+function hideQR() {
+  const panel = el('qrPanel');
+  if (panel) panel.style.display = 'none';
+  _lastQRUrl = null;
+}
+
+// ── Streaming AI response ─────────────────────────────────────────────────────
+let _responseStarted  = false;
+let _accumulatedText  = '';
+
+window.addEventListener('iris:chunk', e => {
+  const aiEl = el('aiText');
+  const ind  = el('typingInd');
+  if (!aiEl) return;
+
+  if (!_responseStarted) {
+    _responseStarted = true;
+    _accumulatedText = '';
+    aiEl.dataset.hasResponse = '1';
+    aiEl.textContent = '';
+    if (ind) ind.style.display = 'none';
+    qCount++;
+    const qCountEl = el('qCount');
+    if (qCountEl) qCountEl.textContent = qCount;
+  }
+
+  _accumulatedText += e.detail;
+  aiEl.textContent += e.detail;
+  aiEl.scrollTop = aiEl.scrollHeight;
+
+  // Scan accumulated text for a URL and show QR if found
+  const matches = _accumulatedText.match(URL_REGEX);
+  if (matches && matches.length > 0) {
+    showQR(matches[0]);
   }
 });
 

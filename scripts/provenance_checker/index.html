@@ -1,0 +1,619 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>IRIS - Web</title>
+<link href="https://fonts.cdnfonts.com/css/hahmlet" rel="stylesheet">
+<style>
+  :root {
+    --bg: #ffffff;
+    --surface: #ffffff;
+    --surface2: #f5f5f5;
+    --border: #000000;
+    --accent: #000000;
+    --accent2: #000000;
+    --text: #000000;
+    --muted: #555555;
+    --genuine: #000000;
+    --fake: #000000;
+    --anim: #000000;
+    --gen: #000000;
+    --deep: #000000;
+  }
+  * { margin:0; padding:0; box-sizing:border-box; }
+
+  body {
+    background: #fff;
+    color: #000;
+    font-family: 'Hahmlet', serif;
+    min-height: 100vh;
+    overflow-x: hidden;
+  }
+
+  body::before { display:none; }
+  body::after  { display:none; }
+
+  /* NAV */
+  nav {
+    position:fixed; top:0; left:0; right:0; z-index:100;
+    display:flex; align-items:center; justify-content:space-between;
+    padding:18px 48px;
+    border-bottom: 2px solid #191970;
+    background: #fff;
+  }
+  .logo { display:flex; align-items:center; gap:12px; }
+  .logo-text { font-family:'Hahmlet',serif; font-size:28px; letter-spacing:6px; color:#000; font-weight:700; }
+  .logo-sub { font-family:'Hahmlet',serif; font-size:9px; color:#000; letter-spacing:3px; margin-top:-4px; font-weight:400; }
+  .nav-status { display:flex; align-items:center; gap:8px; font-family:'Hahmlet',serif; font-size:11px; color:#000; font-weight:600; }
+  .status-dot { width:7px; height:7px; border-radius:50%; background:#000; animation:pulse 2s ease-in-out infinite; }
+  @keyframes pulse { 0%,100%{opacity:1;} 50%{opacity:.3;} }
+
+  /* HERO */
+  .hero {
+    position:relative; z-index:1; min-height:100vh;
+    display:flex; flex-direction:column; align-items:center; justify-content:center;
+    padding:120px 48px 80px; text-align:center;
+    border-bottom: 2px solid #000;
+  }
+  .hero-eyebrow {
+    font-family:'Hahmlet',serif; font-size:11px; letter-spacing:6px;
+    color:#000; text-transform:uppercase; margin-bottom:24px;
+    opacity:0; animation:fadeUp .6s .2s forwards; font-weight:400;
+  }
+  .hero-title {
+    font-family:'Hahmlet',serif;
+    font-size:clamp(80px,14vw,180px); letter-spacing:16px; line-height:.9;
+    margin-bottom:20px; color:#191970; font-weight:700;
+    opacity:0; animation:fadeUp .7s .3s forwards;
+  }
+  .hero-tagline {
+    font-family:'Hahmlet',serif; font-size:16px; font-weight:300;
+    color:#555; max-width:520px; line-height:1.8;
+    margin-bottom:60px; opacity:0; animation:fadeUp .7s .5s forwards;
+  }
+  @keyframes fadeUp { from{opacity:0;transform:translateY(20px)} to{opacity:1;transform:translateY(0)} }
+
+  /* INPUT */
+  .input-panel { position:relative; z-index:1; width:100%; max-width:760px; opacity:0; animation:fadeUp .7s .6s forwards; }
+  .input-wrapper {
+    display:flex; align-items:stretch;
+    background:#fff; border:2px solid #191970;
+    border-radius:0; overflow:hidden;
+    transition:box-shadow .2s;
+  }
+  .input-wrapper:focus-within { box-shadow: 4px 4px 0 #191970; }
+  .input-prefix {
+    font-family:'Hahmlet',serif; font-size:12px; color:#191970; font-weight:600;
+    padding:0 16px; display:flex; align-items:center;
+    border-right:2px solid #191970; white-space:nowrap; background:#f0f0f8;
+    letter-spacing:1px;
+  }
+  #videoUrl {
+    flex:1; background:transparent; border:none; outline:none;
+    padding:18px 20px; font-family:'Hahmlet',serif;
+    font-size:13px; color:#000; caret-color:#000;
+  }
+  #videoUrl::placeholder { color:#aaa; font-family:'Hahmlet',serif; }
+  .analyze-btn {
+    background:#191970; border:none; padding:0 32px;
+    font-family:'Hahmlet',serif; font-size:16px; font-weight:700;
+    letter-spacing:3px; color:#fff; cursor:pointer;
+    transition:background .15s,transform .1s; white-space:nowrap;
+    text-transform:uppercase;
+  }
+  .analyze-btn:hover { background:#2a2a9a; }
+  .analyze-btn:active { transform:scale(.98); }
+  .analyze-btn:disabled { background:#ccc; color:#888; cursor:not-allowed; }
+  .input-hint {
+    font-family:'Hahmlet',serif; font-size:10px; color:#888;
+    margin-top:12px; letter-spacing:2px; text-transform:uppercase;
+  }
+
+  /* LOADING */
+  #loadingPanel { display:none; position:relative; z-index:1; max-width:900px; margin:0 auto 80px; padding:0 48px; }
+  .loading-container { border:2px solid #000; background:#fff; padding:40px; }
+  .loading-header { font-family:'Hahmlet',serif; font-size:10px; letter-spacing:4px; color:#000; margin-bottom:24px; text-transform:uppercase; font-weight:700; }
+  .loading-steps { display:flex; flex-direction:column; gap:12px; }
+  .loading-step { display:flex; align-items:center; gap:14px; opacity:.25; transition:opacity .4s; }
+  .loading-step.active { opacity:1; }
+  .loading-step.complete { opacity:.55; }
+  .loading-step.skipped { opacity:.15; }
+  .step-indicator {
+    width:28px; height:28px; border:2px solid #000;
+    display:flex; align-items:center; justify-content:center;
+    font-family:'Hahmlet',serif; font-size:10px; font-weight:700;
+    flex-shrink:0; transition:all .3s;
+  }
+  .loading-step.active .step-indicator { background:#000; color:#fff; animation:stepPulse 1s ease-in-out infinite; }
+  .loading-step.complete .step-indicator { background:#000; color:#fff; }
+  .loading-step.skipped .step-indicator { border-color:#ccc; color:#ccc; }
+  @keyframes stepPulse { 0%,100%{box-shadow:0 0 0 0 rgba(0,0,0,0.3)} 50%{box-shadow:0 0 0 5px rgba(0,0,0,0)} }
+  .step-text { font-family:'Hahmlet',serif; font-size:12px; letter-spacing:2px; color:#666; text-transform:uppercase; }
+  .loading-step.active .step-text { color:#000; font-weight:600; }
+
+  /* ERROR */
+  #errorBanner { display:none; position:relative; z-index:1; max-width:900px; margin:0 auto 40px; padding:0 48px; }
+  .error-box {
+    border:2px solid #000; background:#f5f5f5;
+    padding:20px 24px; border-left:5px solid #000;
+    font-family:'Hahmlet',serif; font-size:12px; color:#000;
+    line-height:1.6; letter-spacing:1px;
+  }
+
+  /* RESULT */
+  #resultPanel { display:none; position:relative; z-index:1; max-width:900px; margin:0 auto 80px; padding:0 48px; }
+  .result-container { border:2px solid #000; background:#fff; overflow:hidden; }
+  .result-header {
+    display:flex; align-items:center; justify-content:space-between;
+    padding:14px 24px; border-bottom:2px solid #000; background:#f5f5f5;
+  }
+  .result-header-left { font-family:'Hahmlet',serif; font-size:11px; color:#555; letter-spacing:1px; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; max-width:60%; }
+  .result-header-right { font-family:'Hahmlet',serif; font-size:11px; color:#555; white-space:nowrap; }
+  .result-body { padding:32px; display:grid; grid-template-columns:1fr 1fr; gap:32px; }
+  .result-verdict { display:flex; flex-direction:column; gap:14px; }
+  .verdict-label { font-family:'Hahmlet',serif; font-size:10px; letter-spacing:4px; color:#888; text-transform:uppercase; }
+  .verdict-badge {
+    font-family:'Hahmlet',serif;
+    font-size: clamp(28px, 5vw, 56px);
+    letter-spacing:3px; line-height:1.1;
+    font-weight:700; color:#000;
+    word-break:break-word; overflow-wrap:break-word;
+  }
+  .verdict-badge.genuine { color:#000; }
+  .verdict-badge.fake { color:#000; }
+  .verdict-badge.ai { color:#000; }
+  .verdict-badge.skipped { color:#000; }
+  .video-type-badge {
+    display:inline-flex; align-items:center;
+    font-family:'Hahmlet',serif; font-size:11px; font-weight:700;
+    padding:5px 12px; border:2px solid #000; letter-spacing:2px;
+    text-transform:uppercase; color:#000; background:#f5f5f5;
+  }
+  .type-REA { background:#f5f5f5; }
+  .type-GEN { background:#ebebeb; }
+  .type-ANIM { background:#f0f0f0; }
+  .type-REC { background:#f8f8f8; }
+  .confidence-bar-wrap { display:flex; flex-direction:column; gap:6px; }
+  .confidence-label { font-family:'Hahmlet',serif; font-size:10px; color:#888; display:flex; justify-content:space-between; letter-spacing:2px; text-transform:uppercase; }
+  .confidence-track { height:3px; background:#e0e0e0; overflow:hidden; }
+  .confidence-fill { height:100%; width:0%; background:#000; transition:width 1.2s cubic-bezier(.4,0,.2,1); }
+  .confidence-fill.genuine { background:#000; }
+  .confidence-fill.fake { background:#000; }
+  .confidence-fill.ai { background:#000; }
+  .confidence-fill.skipped { background:#000; }
+  #verdictDesc { font-family:'Hahmlet',serif; font-size:13px; color:#555; line-height:1.7; }
+  .explain-btn {
+    background:#fff; border:2px solid #000; color:#000;
+    padding:10px 20px; font-family:'Hahmlet',serif; font-size:11px;
+    letter-spacing:3px; cursor:pointer; transition:all .15s;
+    width:100%; text-align:left; display:flex; align-items:center;
+    gap:10px; text-transform:uppercase; font-weight:700;
+  }
+  .explain-btn:hover { background:#000; color:#fff; }
+  #explanationBox {
+    display:none; margin-top:10px; padding:16px;
+    background:#f5f5f5; border:2px solid #000;
+    border-left:5px solid #000;
+    font-family:'Hahmlet',serif; font-size:13px; color:#000; line-height:1.75;
+  }
+  .pipeline-trace { display:flex; flex-direction:column; gap:8px; }
+  .trace-item {
+    display:flex; align-items:flex-start; gap:10px;
+    font-family:'Hahmlet',serif; font-size:11px; color:#555;
+    line-height:1.5; letter-spacing:1px;
+  }
+  .trace-icon {
+    width:20px; height:20px; border-radius:50%;
+    display:flex; align-items:center; justify-content:center;
+    font-size:10px; font-weight:700; flex-shrink:0; margin-top:1px;
+  }
+  .trace-icon.done { background:#000; color:#fff; }
+  .trace-icon.skip { background:#e0e0e0; color:#888; }
+  .trace-icon.flag { background:#000; color:#fff; }
+  .trace-icon.warn { background:#ccc; color:#000; }
+
+  /* HOW TO USE */
+  .how-section { position:relative; z-index:1; padding:80px 48px 100px; max-width:1200px; margin:0 auto; }
+  .section-label { font-family:'Hahmlet',serif; font-size:10px; letter-spacing:5px; color:#888; margin-bottom:12px; text-transform:uppercase; }
+  .section-title { font-family:'Hahmlet',serif; font-size:clamp(36px,5vw,64px); letter-spacing:4px; margin-bottom:48px; line-height:1; color:#000; font-weight:700; }
+  .steps-grid { display:grid; grid-template-columns:repeat(3,1fr); gap:2px; }
+  .step-card {
+    padding:32px; background:#fff; border:2px solid #000;
+    position:relative; overflow:hidden; transition:background .2s;
+  }
+  .step-card:hover { background:#f5f5f5; }
+  .step-card-num { font-family:'Hahmlet',serif; font-size:80px; color:#e0e0e0; line-height:.9; margin-bottom:20px; display:block; font-weight:700; }
+  .step-card-title { font-family:'Hahmlet',serif; font-size:16px; font-weight:700; margin-bottom:10px; color:#000; }
+  .step-card-desc { font-family:'Hahmlet',serif; font-size:13px; color:#555; line-height:1.7; }
+  .step-card-accent { position:absolute; bottom:0; left:0; width:100%; height:3px; background:#000; transform:scaleX(0); transform-origin:left; transition:transform .3s; }
+  .step-card:hover .step-card-accent { transform:scaleX(1); }
+
+  /* VERDICT KEY */
+  .verdict-key { position:relative; z-index:1; padding:0 48px 80px; max-width:1200px; margin:0 auto; }
+  .verdict-grid { display:grid; grid-template-columns:repeat(2,1fr); gap:2px; }
+  .verdict-card { padding:32px; background:#fff; border:2px solid #000; display:flex; flex-direction:column; gap:14px; }
+  .verdict-icon { font-family:'Hahmlet',serif; font-size:34px; letter-spacing:2px; line-height:1.1; font-weight:700; color:#000; word-break:break-word; }
+  .verdict-icon.genuine { color:#000; }
+  .verdict-icon.fake { color:#000; }
+  .verdict-icon.ai { color:#000; }
+  .verdict-icon.ambig { color:#000; }
+  .verdict-info { display:flex; flex-direction:column; gap:6px; border-top:1px solid #e0e0e0; padding-top:14px; }
+  .verdict-info-title { font-family:'Hahmlet',serif; font-weight:700; color:#000; font-size:14px; text-transform:uppercase; letter-spacing:1px; }
+  .verdict-info-desc { font-family:'Hahmlet',serif; font-size:13px; color:#555; line-height:1.65; }
+
+  footer {
+    position:relative; z-index:1; border-top:2px solid #000;
+    padding:28px 48px; display:flex; align-items:center; justify-content:space-between;
+    font-family:'Hahmlet',serif; font-size:10px; color:#888;
+    letter-spacing:3px; background:#fff; text-transform:uppercase;
+  }
+
+  .back-btn {
+    font-family:'Hahmlet',serif; font-size:11px; font-weight:700;
+    letter-spacing:3px; text-transform:uppercase; text-decoration:none;
+    color:#fff; background:#000;
+    padding:9px 20px;
+    border:2px solid #000;
+    transition:background .15s, color .15s;
+    white-space:nowrap;
+  }
+  .back-btn:hover { background:#fff; color:#000; }
+
+  .status-dot { display:none; }
+    display:inline-block; width:12px; height:12px;
+    border:2px solid #ddd; border-top-color:#000;
+    border-radius:50%; animation:spin .7s linear infinite; flex-shrink:0;
+  }
+  @keyframes spin { to { transform:rotate(360deg); } }
+
+  @media(max-width:900px){
+    nav{padding:16px 24px;}
+    .hero,.how-section,.verdict-key{padding-left:24px;padding-right:24px;}
+    #resultPanel,#loadingPanel,#errorBanner{padding-left:24px;padding-right:24px;}
+    .steps-grid{grid-template-columns:1fr;}
+    .verdict-grid{grid-template-columns:1fr;}
+    .result-body{grid-template-columns:1fr;}
+  }
+  @media(max-width:600px){
+    .hero-title{letter-spacing:6px;}
+    .input-prefix{display:none;}
+    .analyze-btn{padding:0 20px;font-size:14px;}
+    footer{flex-direction:column;gap:8px;text-align:center;}
+  }
+</style>
+</head>
+<body>
+
+<nav>
+  <div class="logo">
+    <svg width="36" height="36" viewBox="0 0 36 36" fill="none">
+      <ellipse cx="18" cy="18" rx="16" ry="10" stroke="#000" stroke-width="1.5"/>
+      <circle cx="18" cy="18" r="5" stroke="#000" stroke-width="1.5"/>
+      <circle cx="18" cy="18" r="2" fill="#000"/>
+      <line x1="2" y1="18" x2="6" y2="18" stroke="#000" stroke-width="1.5"/>
+      <line x1="30" y1="18" x2="34" y2="18" stroke="#000" stroke-width="1.5"/>
+    </svg>
+    <div>
+      <div class="logo-text">IRIS</div>
+      <div class="logo-sub">Deepfake Detection</div>
+    </div>
+  </div>
+  <a href="#" class="back-btn">← BACK TO IRIS</a>
+</nav>
+
+<section class="hero">
+  <div class="hero-title">IRIS</div>
+  <p class="hero-tagline">Paste any video URL. IRIS runs a multi-stage AI pipeline to detect deepfakes, AI-generated content, and provenance anomalies in seconds.</p>
+  <div class="input-panel">
+    <div class="input-wrapper">
+      <span class="input-prefix">VIDEO_URL://</span>
+      <input type="text" id="videoUrl" placeholder="Paste https://x.com/user/status/... or any video link" autocomplete="off" spellcheck="false">
+      <button class="analyze-btn" id="analyzeBtn" onclick="startAnalysis()">DETECT</button>
+    </div>
+</section>
+
+<div id="loadingPanel">
+  <div class="loading-container">
+    <div class="loading-header">// PIPELINE EXECUTING</div>
+    <div class="loading-steps">
+      <div class="loading-step" id="ls1"><div class="step-indicator">01</div><div class="step-text">SCRAPING VIDEO URL &amp; SENDING REQUEST TO API HOST</div></div>
+      <div class="loading-step" id="ls2"><div class="step-indicator">02</div><div class="step-text">SERVER ORCHESTRATOR ROUTING REQUEST</div></div>
+      <div class="loading-step" id="ls3"><div class="step-indicator">03</div><div class="step-text">DOWNLOADING VIDEO (BALANCED QUALITY)</div></div>
+      <div class="loading-step" id="ls4"><div class="step-indicator">04</div><div class="step-text">READING C2PA / XMP / EXIF METADATA</div></div>
+      <div class="loading-step" id="ls5"><div class="step-indicator">05</div><div class="step-text">VIDEO TYPE DETECTION — QWEN3-VL CLASSIFIER</div></div>
+      <div class="loading-step" id="ls6"><div class="step-indicator">06</div><div class="step-text">DEEPFAKE ENGINE — VIDEOMAE + WAV2VEC + FOURIER CNN + FUSION</div></div>
+    </div>
+  </div>
+</div>
+
+<div id="errorBanner">
+  <div class="error-box" id="errorText"></div>
+</div>
+
+<div id="resultPanel">
+  <div class="result-container">
+    <div class="result-header">
+      <span class="result-header-left" id="resultUrl">// VIDEO_URL</span>
+      <span class="result-header-right" id="resultTime">—</span>
+    </div>
+    <div class="result-body">
+      <div class="result-verdict">
+        <div class="verdict-label">// FINAL VERDICT</div>
+        <div class="verdict-badge" id="verdictBadge">—</div>
+        <div id="videoTypeBadge"></div>
+        <div class="confidence-bar-wrap">
+          <div class="confidence-label"><span>CONFIDENCE</span><span id="confScore">—</span></div>
+          <div class="confidence-track"><div class="confidence-fill" id="confFill"></div></div>
+        </div>
+        <div id="verdictDesc" style="font-size:13px;color:var(--muted);line-height:1.65;"></div>
+        <button class="explain-btn" id="explainBtn" onclick="toggleExplain()">
+          <span id="explainIcon">⊕</span><span id="explainLabel">EXPLAIN FURTHER</span>
+        </button>
+        <div id="explanationBox"></div>
+      </div>
+      <div class="pipeline-trace" id="pipelineTrace">
+        <div style="font-family:'Hahmlet',serif;font-size:10px;color:#888;letter-spacing:3px;text-transform:uppercase;margin-bottom:8px;">// PIPELINE TRACE</div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<section class="how-section">
+  <div class="section-label">// User Guide</div>
+  <div class="section-title">HOW TO USE IRIS</div>
+  <div class="steps-grid">
+    <div class="step-card"><span class="step-card-num">01</span><div class="step-card-title">Find a Video to Analyze</div><div class="step-card-desc">Navigate to any video on X (Twitter), YouTube, Instagram, TikTok, or any platform. Copy the full URL from your browser's address bar or use the share/copy link option.</div><div class="step-card-accent"></div></div>
+    <div class="step-card"><span class="step-card-num">02</span><div class="step-card-title">Paste the URL into IRIS</div><div class="step-card-desc">Click the input field at the top of the page and paste your video URL. Click <strong>DETECT</strong> or press Enter to begin the multi-stage pipeline.</div><div class="step-card-accent"></div></div>
+    <div class="step-card"><span class="step-card-num">03</span><div class="step-card-title">Watch the Pipeline Execute</div><div class="step-card-desc">IRIS shows a real-time progress trace — metadata check, video type detection, deepfake analysis. If a fast-exit is triggered, later stages are automatically skipped.</div><div class="step-card-accent"></div></div>
+    <div class="step-card"><span class="step-card-num">04</span><div class="step-card-title">Read the Verdict</div><div class="step-card-desc">The result panel shows the final verdict — <strong>GENUINE</strong>, <strong>FAKE</strong>, or <strong>AI CONFIRMED</strong> — with a confidence score and full pipeline trace.</div><div class="step-card-accent"></div></div>
+    <div class="step-card"><span class="step-card-num">05</span><div class="step-card-title">Request an Explanation</div><div class="step-card-desc">Click <strong>EXPLAIN FURTHER</strong> to get a plain-language breakdown of why the verdict was reached. This fires only on demand to conserve processing.</div><div class="step-card-accent"></div></div>
+    <div class="step-card"><span class="step-card-num">06</span><div class="step-card-title">Analyze Another Video</div><div class="step-card-desc">Clear the input, paste a new URL, and run again. Each analysis is fully independent. Use IRIS repeatedly to fact-check videos before sharing or reporting.</div><div class="step-card-accent"></div></div>
+  </div>
+</section>
+
+<section class="verdict-key">
+  <div class="section-label">// Verdict Reference</div>
+  <div class="section-title">WHAT THE VERDICTS MEAN</div>
+  <div class="verdict-grid">
+    <div class="verdict-card">
+      <div class="verdict-icon genuine">GENUINE</div>
+      <div class="verdict-info">
+        <div class="verdict-info-title">This video is real</div>
+        <div class="verdict-info-desc">No signs of manipulation were found. The faces, voices, and movements all appear natural and unaltered.</div>
+      </div>
+    </div>
+    <div class="verdict-card">
+      <div class="verdict-icon fake">FAKE</div>
+      <div class="verdict-info">
+        <div class="verdict-info-title">This video has been manipulated</div>
+        <div class="verdict-info-desc">A person's face or voice has been digitally swapped or altered. Do not share or trust this video as genuine.</div>
+      </div>
+    </div>
+    <div class="verdict-card">
+      <div class="verdict-icon ai">AI CONFIRMED</div>
+      <div class="verdict-info">
+        <div class="verdict-info-title">This video was made by AI</div>
+        <div class="verdict-info-desc">The entire video was generated by an AI tool like Sora or Veo3. No real person or footage was used.</div>
+      </div>
+    </div>
+    <div class="verdict-card">
+      <div class="verdict-icon ambig">SKIPPED</div>
+      <div class="verdict-info">
+        <div class="verdict-info-title">No deepfake check needed</div>
+        <div class="verdict-info-desc">The video is a cartoon, screen recording, or has no real human face — so a deepfake check doesn't apply here.</div>
+      </div>
+    </div>
+  </div>
+</section>
+
+<footer>
+  <span>IRIS // Deepfake Detection</span>
+
+</footer>
+
+<script>
+
+let explainOpen = false;
+let currentExplanation = '';
+let analysisStartTime = 0;
+
+// ── Helpers ──
+const $ = id => document.getElementById(id);
+const show = id => $(id).style.display = 'block';
+const hide = id => $(id).style.display = 'none';
+const delay = ms => new Promise(r => setTimeout(r, ms));
+
+function setStep(n, state) {
+  const el = $('ls' + n);
+  if (!el) return;
+  el.className = 'loading-step ' + state;
+  const ind = el.querySelector('.step-indicator');
+  if (state === 'complete') ind.textContent = '✓';
+  else if (state === 'skipped') ind.textContent = '—';
+  else ind.textContent = String(n).padStart(2,'0');
+}
+function resetSteps() { for (let i=1;i<=6;i++) setStep(i,''); }
+function resetBtn() { $('analyzeBtn').disabled=false; $('analyzeBtn').textContent='DETECT'; }
+
+// ── Local VLM via /explain ──
+async function callClaude(prompt, maxTokens=600) {
+  const res = await fetch('/explain', {
+    method: 'POST',
+    headers: {'Content-Type': 'application/json'},
+    body: JSON.stringify({prompt, max_tokens: maxTokens})
+  });
+  if (!res.ok) throw new Error(`VLM error ${res.status}`);
+  const data = await res.json();
+  // Return same shape callClaude callers expect
+  return { content: [{ type: 'text', text: data.text }] };
+}
+
+function getTextFromResponse(data) {
+  return data.content.filter(b=>b.type==='text').map(b=>b.text).join('').trim();
+}
+
+// ── Main orchestrator ──
+let currentEventSource = null;
+
+function startAnalysis() {
+  const url = $('videoUrl').value.trim();
+  if (!url) { $('videoUrl').focus(); return; }
+  if (!url.startsWith('http')) { showError('Please enter a valid URL starting with http'); return; }
+
+  // 1. Reset UI
+  hide('resultPanel');
+  hide('errorBanner');
+  explainOpen = false;
+  $('explanationBox').style.display = 'none';
+  $('analyzeBtn').disabled = true;
+  $('analyzeBtn').textContent = 'DETECTING...';
+  analysisStartTime = Date.now();
+
+  show('loadingPanel');
+  resetSteps();
+  $('loadingPanel').scrollIntoView({behavior:'smooth', block:'center'});
+
+  // 2. Close any existing connection
+  if (currentEventSource) {
+      currentEventSource.close();
+  }
+
+  // 3. Connect to the REAL backend endpoint
+  currentEventSource = new EventSource(`/analyze?url=${encodeURIComponent(url)}`);
+
+  // Listen for pipeline steps updating
+  currentEventSource.addEventListener("step", (e) => {
+      const data = JSON.parse(e.data);
+      setStep(data.step, data.status);
+      
+      // Optional: You could update the UI text if data.note exists
+      if(data.note) {
+          console.log(`Step ${data.step} note: ${data.note}`);
+      }
+  });
+
+  // Listen for the final verdict
+  currentEventSource.addEventListener("result", (e) => {
+      const data = JSON.parse(e.data);
+      hide('loadingPanel');
+      displayResult(data, url);
+      resetBtn();
+      currentEventSource.close();
+  });
+
+  // Listen for backend crashes/errors
+  currentEventSource.addEventListener("error", (e) => {
+      const data = JSON.parse(e.data);
+      hide('loadingPanel');
+      showError(data.message || "Connection to analysis server failed.");
+      resetBtn();
+      currentEventSource.close();
+  });
+}
+
+// ── Display result ──
+function displayResult(r, url) {
+  const short = url.length>58 ? url.substring(0,58)+'…' : url;
+  $('resultUrl').textContent = '// ' + short;
+  $('resultTime').textContent = r.elapsed + 's';
+
+  const badge = $('verdictBadge');
+  badge.textContent = r.verdict;
+  badge.className = 'verdict-badge ' + r.verdictClass;
+
+  const tb = $('videoTypeBadge');
+  if (r.videoType) {
+    const cls = 'type-' + r.videoType.replace('.','');
+    tb.innerHTML = `<span class="video-type-badge ${cls}">TYPE: ${r.videoType}</span>`;
+  } else tb.innerHTML='';
+
+  $('confScore').textContent = r.confidence + '%';
+  const fill = $('confFill');
+  fill.className = 'confidence-fill ' + r.verdictClass;
+  setTimeout(()=>{ fill.style.width = r.confidence+'%'; }, 80);
+
+  $('verdictDesc').textContent = r.description;
+
+  // Pipeline trace
+  const trace = $('pipelineTrace');
+  trace.innerHTML = '<div style="font-family:\'Space Mono\',monospace;font-size:10px;color:var(--muted);letter-spacing:2px;margin-bottom:8px;">// PIPELINE TRACE</div>';
+  r.trace.forEach(item => {
+    const icons = {done:'✓', skip:'—', flag:'!', warn:'⚠'};
+    const d = document.createElement('div');
+    d.className = 'trace-item';
+    d.innerHTML = `<div class="trace-icon ${item.icon}">${icons[item.icon]||'·'}</div><span>${item.text}</span>`;
+    trace.appendChild(d);
+  });
+
+  currentExplanation = r.explanation || '';
+  $('explanationBox').textContent = '';
+  $('explanationBox').style.display = 'none';
+  $('explainIcon').textContent = '⊕';
+  $('explainLabel').textContent = 'EXPLAIN FURTHER';
+  $('explainBtn').style.pointerEvents = 'auto';
+  explainOpen = false;
+
+  show('resultPanel');
+  $('resultPanel').scrollIntoView({behavior:'smooth', block:'start'});
+}
+
+// ── Explain Further (live Claude call) ──
+async function toggleExplain() {
+  const box = $('explanationBox');
+  if (explainOpen) {
+    explainOpen = false;
+    box.style.display = 'none';
+    $('explainIcon').textContent = '⊕';
+    $('explainLabel').textContent = 'EXPLAIN FURTHER';
+    return;
+  }
+  explainOpen = true;
+  $('explainIcon').innerHTML = '<span class="spin"></span>';
+  $('explainLabel').textContent = 'GENERATING...';
+  $('explainBtn').style.pointerEvents = 'none';
+  box.style.display = 'block';
+  box.textContent = '';
+
+  const url = $('videoUrl').value.trim();
+  const verdict = $('verdictBadge').textContent;
+  const desc = $('verdictDesc').textContent;
+
+  const prompt = `You are IRIS, an AI video authenticity system. A user just received this analysis result.
+
+Video URL: ${url}
+Verdict: ${verdict}
+Summary: ${desc}
+Technical analysis: ${currentExplanation}
+
+1. What the verdict means in simple terms
+2. What specific signals or evidence led to this conclusion
+3. How confident they should be in this result
+4. What they should do with this information (share/don't share, report, etc.)
+
+Write naturally — no bullet points, no headers, no markdown. Just clear paragraphs.`;
+
+  try {
+    const data = await callClaude(prompt, 450);
+    box.textContent = getTextFromResponse(data);
+  } catch {
+    box.textContent = currentExplanation || 'Unable to generate explanation at this time.';
+  }
+
+  $('explainIcon').textContent = '⊖';
+  $('explainLabel').textContent = 'COLLAPSE';
+  $('explainBtn').style.pointerEvents = 'auto';
+}
+
+// ── Error display ──
+function showError(msg) {
+  $('errorText').textContent = '// ERROR: ' + msg;
+  show('errorBanner');
+  $('errorBanner').scrollIntoView({behavior:'smooth', block:'center'});
+}
+
+// Enter key
+$('videoUrl').addEventListener('keydown', e => { if(e.key==='Enter') startAnalysis(); });
+</script>
+</body>
+</html>

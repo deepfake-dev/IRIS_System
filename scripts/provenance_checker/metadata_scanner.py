@@ -13,7 +13,8 @@ from hachoir.metadata import extractMetadata
 # ── Configuration & Constants ─────────────────────────────────────────────────
 
 class Decision(Enum):
-    YES = "YES"
+    YES   = "YES"
+    NO    = "NO"
     MAYBE = "MAYBE"
 
 @dataclass
