@@ -26,6 +26,13 @@ new ResizeObserver(resizeRenderer).observe(col);
 const vrmCtrl  = new VRMController(scene);
 const animCtrl = new AnimationController(vrmCtrl);
 
+const ANIMATION_FILES = {
+  idle:      ['./animations/idle1.fbx', './animations/idle2.fbx', './animations/idle3.fbx'],
+  talking:   ['./animations/talk1.fbx', './animations/talk2.fbx'],
+  listening: ['./animations/listen1.fbx'],
+  thinking:  ['./animations/think1.fbx']
+};
+
 function applyDefaultPose(gender) {
   if (gender === 'female') {
     // Female: Relaxed A-pose
@@ -40,11 +47,21 @@ function applyDefaultPose(gender) {
 
 // Load initial model, then hide spinner
 vrmCtrl.load('./bsu_girl.vrm')
-  .then(vrm => {
-    loading.style.display = 'none';
-
+  .then(async vrm => {
     applyDefaultPose('female');
+    
+    // Wipe memory and load FBX files for this specific skeleton
+    animCtrl.clearCache();
+    await Promise.all([
+      animCtrl.loadStateAnimations('idle', ANIMATION_FILES.idle),
+      animCtrl.loadStateAnimations('talking', ANIMATION_FILES.talking),
+      animCtrl.loadStateAnimations('listening', ANIMATION_FILES.listening),
+      animCtrl.loadStateAnimations('thinking', ANIMATION_FILES.thinking)
+    ]);
 
+    loading.style.display = 'none';
+    animCtrl.playState('idle'); // Start breathing immediately!
+    
     console.log('[VRM] Loaded. Expressions:', Object.keys(vrm.expressionManager?.expressionMap ?? {}));
   })
   .catch(err => {
@@ -73,10 +90,19 @@ window.switchVRMModel = function(gender) {
   }
 
   vrmCtrl.load(url)
-    .then(vrm => {
-      loading.style.display = 'none';
-
+    .then(async vrm => {
       applyDefaultPose(gender);
+
+      animCtrl.clearCache();
+      await Promise.all([
+        animCtrl.loadStateAnimations('idle', ANIMATION_FILES.idle),
+        animCtrl.loadStateAnimations('talking', ANIMATION_FILES.talking),
+        animCtrl.loadStateAnimations('listening', ANIMATION_FILES.listening),
+        animCtrl.loadStateAnimations('thinking', ANIMATION_FILES.thinking)
+      ]);
+
+      loading.style.display = 'none';
+      animCtrl.playState('idle');
 
       console.log(`[VRM] Switched to ${gender} model.`);
     })
@@ -86,14 +112,6 @@ window.switchVRMModel = function(gender) {
       if (loadingSpinner) loadingSpinner.style.display = 'none';
     });
 };
-
-function applyIdle(t) {
-  if (!vrmCtrl.vrm?.humanoid) return;
-  const chest = vrmCtrl.vrm.humanoid.getNormalizedBoneNode('chest');
-  const spine = vrmCtrl.vrm.humanoid.getNormalizedBoneNode('spine');
-  if (chest) chest.rotation.x = Math.sin(t * 0.8) * 0.012;
-  if (spine) spine.rotation.x = Math.sin(t * 0.8 + 0.3) * 0.008;
-}
 
 const signalHandler = new SignalHandler(vrmCtrl, animCtrl);
 
@@ -230,6 +248,7 @@ const wakeText   = el('wake-text');
 const wakeStatus = el('wake-status');
 
 window.addEventListener('iris:wakeword', () => {
+  animCtrl.playState('listening');
   _responseStarted = false;
   hideQR();
   
@@ -247,11 +266,13 @@ window.addEventListener('iris:listening', e => {
   const wp = el('wakePrompt');
 
   if (e.detail) { // Recording user query
+    animCtrl.playState('listening');
     if (wp) wp.style.display = 'none';
     if (wakePill)   wakePill.classList.add('active');
     if (wakeText)   wakeText.innerHTML = 'Listening…';
     if (wakeStatus) wakeStatus.textContent = 'Active';
   } else { // Finished recording, sending to knowledge base
+    animCtrl.playState('thinking');
     const ind  = el('typingInd');
     const aiEl = el('aiText');
     if (ind)  ind.style.display = 'flex';
@@ -270,6 +291,7 @@ window.addEventListener('iris:audiostate', e => {
 
   switch (e.detail) {
     case 'speaking': // AI is talking out loud
+      animCtrl.playState('talking');
       if (wakeStatus) wakeStatus.textContent = 'Speaking';
       if (wp) wp.style.display = 'none';
       showListeningIndicator(false);
@@ -277,6 +299,7 @@ window.addEventListener('iris:audiostate', e => {
       break;
 
     case 'listening': // AI is recording audio
+      animCtrl.playState('listening');
       if (wakeStatus) wakeStatus.textContent = 'Active';
       if (wp) wp.style.display = 'none';
       _showSkipBtn(false);
@@ -284,6 +307,7 @@ window.addEventListener('iris:audiostate', e => {
       break;
 
     default: // 'idle' — AI finished talking
+      animCtrl.playState('idle');
       if (wakeStatus) wakeStatus.textContent = 'Standby';
       if (wakePill)   wakePill.classList.remove('active');
       if (wakeText) wakeText.innerHTML = 'Say <strong>"Hey Iris"</strong> to ask another question';
@@ -367,7 +391,6 @@ function animate() {
     delta = 0.033;
   }
 
-  applyIdle(elapsed);
   vrmCtrl.update(delta);
   animCtrl.update(delta);
   renderer.render(scene, camera);

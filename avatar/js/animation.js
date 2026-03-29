@@ -33,26 +33,63 @@ export class AnimationController {
   constructor(vrmController) {
     this.vrmCtrl = vrmController;
     this.mixer   = null;
-    this.action  = null;
+    this.currentAction = null;
     this._loader = new FBXLoader();
+    
+    // Store retargeted clips by state
+    this.stateClips = {}; 
   }
 
-  loadFromFile(file) {
-    return new Promise((resolve, reject) => {
-      const url = URL.createObjectURL(file);
-      this._loader.load(
-        url,
-        fbx => {
-          URL.revokeObjectURL(url);
-          if (!fbx.animations.length) { reject(new Error('No animations found in FBX file')); return; }
+  // Wipes memory when switching models
+  clearCache() {
+    this.stateClips = {};
+    if (this.mixer) {
+      this.mixer.stopAllAction();
+      this.mixer = null;
+    }
+    this.currentAction = null;
+  }
+
+  // Loads an array of FBX URLs into a specific state category
+  async loadStateAnimations(state, urls) {
+    this.stateClips[state] = [];
+    for (const url of urls) {
+      try {
+        const fbx = await this._loader.loadAsync(url);
+        if (fbx.animations.length > 0) {
           const clip = this._retarget(fbx.animations[0], fbx);
-          this._applyClip(clip);
-          resolve(fbx.animations[0].name || file.name);
-        },
-        undefined,
-        err => { URL.revokeObjectURL(url); reject(err); }
-      );
-    });
+          this.stateClips[state].push(clip);
+        }
+      } catch (err) {
+        console.error(`[Anim] Failed to load ${url}:`, err);
+      }
+    }
+  }
+
+  // Plays a random animation from the requested state with a smooth crossfade
+  playState(state, fadeDuration = 0.5) {
+    if (!this.vrmCtrl.vrm) return;
+    
+    const clips = this.stateClips[state];
+    if (!clips || clips.length === 0) return;
+
+    // Pick a random animation from the available ones for this state
+    const randomClip = clips[Math.floor(Math.random() * clips.length)];
+
+    if (!this.mixer) {
+      this.mixer = new THREE.AnimationMixer(this.vrmCtrl.vrm.scene);
+    }
+
+    const nextAction = this.mixer.clipAction(randomClip);
+    nextAction.reset();
+    nextAction.play();
+
+    if (this.currentAction) {
+      // Smoothly blend from the old animation to the new one
+      this.currentAction.crossFadeTo(nextAction, fadeDuration, true);
+    }
+
+    this.currentAction = nextAction;
   }
 
   _retarget(clip, fbx) {
@@ -91,7 +128,6 @@ export class AnimationController {
           q.multiply(parentWorldInv);
           q.toArray(newValues, i);
         }
-
         tracks.push(new THREE.QuaternionKeyframeTrack(`${vrmNode.name}.${prop}`, track.times, newValues));
 
       } else if (prop === 'position' && vrmBoneName === 'hips') {
@@ -112,7 +148,6 @@ export class AnimationController {
           v.add(vrmRestPos);
           v.toArray(newValues, i);
         }
-
         tracks.push(new THREE.VectorKeyframeTrack(`${vrmNode.name}.${prop}`, track.times, newValues));
       }
     });
@@ -120,23 +155,5 @@ export class AnimationController {
     return new THREE.AnimationClip(clip.name, clip.duration, tracks);
   }
 
-  _applyClip(clip) {
-    const vrm = this.vrmCtrl.vrm;
-    if (!vrm) return;
-    if (this.mixer) {
-      this.mixer.stopAllAction();
-      this.mixer.uncacheRoot(this.mixer.getRoot());
-    }
-    this.mixer  = new THREE.AnimationMixer(vrm.scene);
-    this.action = this.mixer.clipAction(clip);
-    this.action.play();
-  }
-
-  play()  { if (this.action) { this.action.paused = false; this.action.play(); } }
-  pause() { if (this.action) this.action.paused = !this.action.paused; }
-  stop()  { if (this.action) { this.action.stop(); } }
-  setSpeed(value) { if (this.action) this.action.timeScale = value; }
-
   update(delta) { this.mixer?.update(delta); }
-  get ready() { return this.action !== null; }
 }
