@@ -105,16 +105,28 @@ audioMgr.onMouth(v => vrmCtrl.setMouth(v));
 signalHandler.audioMgr = audioMgr;
 window._audioMgr = audioMgr;
 
+let _pendingText = '';
 let ws;
 try {
   ws = new SecureWebSocket(
     'ws://localhost:8080',
-    payload => signalHandler.handle(payload),
+    payload => {
+      // Intercept the new synced text command from Python
+      if (payload.ai_text_sync !== undefined) {
+        _pendingText = payload.ai_text_sync;
+      } else {
+        signalHandler.handle(payload);
+      }
+    },
     state   => {
       const labels = { connected: 'Connected to Python', disconnected: 'Disconnected — retrying…', reconnecting: 'Reconnecting…' };
       console.log('[WS]', labels[state] ?? state);
     },
-    buf => audioMgr.receiveAudio(buf)
+    buf => {
+      // Bundle the binary audio with the text we just received!
+      audioMgr.receiveAudio(buf, _pendingText);
+      _pendingText = ''; // Clear it out for the next chunk
+    }
   );
 } catch (e) {
   console.error('[Main] WebSocket init failed:', e);
@@ -322,7 +334,7 @@ function hideQR() {
 let _responseStarted  = false;
 let _accumulatedText  = '';
 
-window.addEventListener('iris:chunk', e => {
+window.addEventListener('iris:sync_text', e => {
   const aiEl = el('aiText');
   const ind  = el('typingInd');
   if (!aiEl) return;

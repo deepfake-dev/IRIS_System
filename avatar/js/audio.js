@@ -51,8 +51,8 @@ export class AudioManager {
   }
   // -----------------------------
 
-  receiveAudio(arrayBuffer) {
-    this._audioQueue.push(arrayBuffer);
+  receiveAudio(arrayBuffer, textChunk = '') {
+    this._audioQueue.push({ buffer: arrayBuffer, text: textChunk });
     if (!this._isPlaying) this._playNext();
   }
 
@@ -110,7 +110,13 @@ export class AudioManager {
     this._onStateChange('speaking');
     this.pauseMic();
 
-    const buffer = this._audioQueue.shift();
+    const item = this._audioQueue.shift();
+    const buffer = item.buffer;
+    const textToDisplay = item.text;
+
+    if (textToDisplay) {
+      window.dispatchEvent(new CustomEvent('iris:sync_text', { detail: textToDisplay }));
+    }
 
     try {
       const audioBuffer = await this._playbackCtx.decodeAudioData(buffer.slice(0));

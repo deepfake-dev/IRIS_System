@@ -248,9 +248,12 @@ class IrisAssistant:
 
         return "\n\n".join(formatted_chunks), retrieval_log
 
-    def speak(self, text):
+    def speak(self, text, display_text=None):
         if not text.strip():
             return
+
+        if display_text is None:
+            display_text = text
 
         self.speaking = True
 
@@ -277,6 +280,11 @@ class IrisAssistant:
             wav_bytes = buf.getvalue()
 
             if self.websocket and self.websocket_loop:
+                asyncio.run_coroutine_threadsafe(
+                    self.websocket.send(json.dumps({"ai_text_sync": display_text})),
+                    self.websocket_loop
+                ).result()
+
                 asyncio.run_coroutine_threadsafe(
                     self.websocket.send(wav_bytes),
                     self.websocket_loop
@@ -332,12 +340,6 @@ class IrisAssistant:
             current_response += new_text
             current_buffer += new_text
 
-            if self.websocket and self.websocket_loop:
-                asyncio.run_coroutine_threadsafe(
-                    self.websocket.send(json.dumps({"ai_chunk": new_text})),
-                    self.websocket_loop
-                )
-
             # Mask abbreviations to prevent false sentence boundaries from triggering early
             test_buffer = (current_buffer
                            .replace("Engr. ", "Engr_ ")
@@ -374,7 +376,7 @@ class IrisAssistant:
                                        .replace("Assoc.", "Associate")
                                        .replace("Prof.", "Professor")
                                        .replace("Dr.", "Doctor"))
-                    self.speak(spoken_sentence)
+                    self.speak(spoken_sentence, complete_words + " ")
                     
                 current_buffer = leftover
 
@@ -454,7 +456,7 @@ class IrisAssistant:
                                    .replace("Assoc.", "Associate")
                                    .replace("Prof.", "Professor")
                                    .replace("Dr.", "Doctor"))
-                self.speak(spoken_sentence)
+                self.speak(spoken_sentence, final_fragment)
 
             print("\n")
 
