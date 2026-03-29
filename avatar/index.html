@@ -171,16 +171,35 @@
 
   var tapActive = false;
   function toggleMicrophone() {
-    tapActive = !tapActive;
+    tapActive = !tapActive; // Flip the state
     var prompt = document.getElementById('wakePrompt');
+    var btn    = document.getElementById('enableMicBtn');
+    var label  = document.getElementById('enableMicLabel');
 
     if (tapActive) {
-      if (window._audioMgr) window._audioMgr.init();
-      if (typeof setAvatarState === 'function') setAvatarState('listening');
-      // Always show prompt when mic is turned on
+      // ─── TURN ON ───
+      if (window._audioMgr) {
+        if (!window._audioMgr._micCtx) {
+          window._audioMgr.init(); 
+        } else {
+          window._audioMgr.enableUserMic(); 
+        }
+      }
+      
+      // Force UI to "Disable Microphone"
+      if (btn) btn.classList.add('active');
+      if (label) label.textContent = 'Disable Microphone';
       if (prompt) prompt.style.display = 'block'; 
+      
     } else {
-      if (typeof setAvatarState === 'function') setAvatarState('idle');
+      // ─── TURN OFF ───
+      if (window._audioMgr) {
+          window._audioMgr.disableUserMic(); 
+      }
+      
+      // Force UI back to "Enable Microphone"
+      if (btn) btn.classList.remove('active');
+      if (label) label.textContent = 'Enable Microphone';
       if (prompt) prompt.style.display = 'none';
     }
   }

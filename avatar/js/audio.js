@@ -3,13 +3,18 @@ export class AudioManager {
     this._sendBinary    = sendBinary;
     this._onStateChange = onStateChange ?? (() => {});
 
-    this._micCtx      = null;
-    this._playbackCtx      = null;
+    this._micCtx        = null;
+    this._playbackCtx   = null;
     this._stream        = null;
     this._audioQueue    = [];
     this._isPlaying     = false;
     this._mouthCallback = null;
+    
+    // AI's internal state (turns off when speaking/processing)
     this._micActive     = false;
+    
+    // USER'S master switch (controlled ONLY by the button)
+    this.isUserEnabled  = false; 
 
     console.log('[Audio] Ready — call init() to request mic access.');
   }
@@ -17,16 +22,34 @@ export class AudioManager {
   onMouth(cb) { this._mouthCallback = cb; }
 
   async init() {
-    if (this._micCtx) return;   
+    this.isUserEnabled = true; 
+    
+    if (this._micCtx) {
+      this.enableUserMic();
+      return;   
+    }
+    
     try {
       await this._init();
       this._onStateChange('idle');
-      console.log('[Audio] Mic initialised via Enable Microphone.');
+      console.log('[Audio] Mic initialised.');
     } catch (err) {
       console.error('[Audio] Init failed:', err);
-      alert('Microphone access is required. Please allow microphone permissions in your browser, then try again.');
+      alert('Microphone access is required.');
     }
   }
+
+  // --- STRICT MANUAL TOGGLES ---
+  disableUserMic() {
+    this.isUserEnabled = false;
+    console.log('[Audio] User Muted: Data stream stopped.');
+  }
+
+  enableUserMic() {
+    this.isUserEnabled = true;
+    console.log('[Audio] User Unmuted: Data stream active.');
+  }
+  // -----------------------------
 
   receiveAudio(arrayBuffer) {
     this._audioQueue.push(arrayBuffer);
@@ -45,18 +68,8 @@ export class AudioManager {
     if (this._micCtx.state === 'suspended') await this._micCtx.resume();
     if (this._playbackCtx.state === 'suspended') await this._playbackCtx.resume();
 
-    if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) {
-      throw new Error("getUserMedia not supported. Are you running on HTTPS or localhost?");
-    }
-
     this._stream = await navigator.mediaDevices.getUserMedia({
-      audio: {
-        channelCount: 1,
-        sampleRate: 16000,
-        echoCancellation: true,
-        noiseSuppression: true,
-        autoGainControl: true
-      }
+      audio: { channelCount: 1, sampleRate: 16000, echoCancellation: true, noiseSuppression: true, autoGainControl: true }
     });
 
     await this._micCtx.audioWorklet.addModule('./js/mic-processor.js');
@@ -65,7 +78,8 @@ export class AudioManager {
     const workletNode = new AudioWorkletNode(this._micCtx, 'mic-processor');
     
     workletNode.port.onmessage = (e) => {
-      if (!this._micActive || this._isPlaying) return;
+      // THE GATE: Drop the audio if the user clicked "Disable", OR if AI is speaking/processing
+      if (!this.isUserEnabled || !this._micActive || this._isPlaying) return;
       this._sendBinary(e.data);
     };
 
@@ -73,13 +87,12 @@ export class AudioManager {
     workletNode.connect(this._micCtx.destination);
     
     this._micActive = true;
-    console.log('[Audio] Mic active. High-performance AudioWorklet streaming started.');
   }
 
   stopAll() {
-    this._audioQueue = []; // Empty the queue
+    this._audioQueue = [];
     if (this._currentSource) {
-      try { this._currentSource.stop(); } catch(e) {} // Kill the active audio instantly
+      try { this._currentSource.stop(); } catch(e) {}
       this._currentSource = null;
     }
   }
@@ -103,6 +116,7 @@ export class AudioManager {
       const audioBuffer = await this._playbackCtx.decodeAudioData(buffer.slice(0));
       const source      = this._playbackCtx.createBufferSource();
       source.buffer     = audioBuffer;
+      this._currentSource = source;
 
       const analyser   = this._playbackCtx.createAnalyser();
       analyser.fftSize = 256;
@@ -127,7 +141,6 @@ export class AudioManager {
 
       source.start();
     } catch (err) {
-      console.error('[Audio] Failed to decode/play chunk:', err);
       setTimeout(() => this._playNext(), 0); 
     }
   }

@@ -125,19 +125,13 @@ const el = id => document.getElementById(id);
 function setAvatarState(state) {
   const ring  = el('avatarListenRing');
   const label = el('avatarListenLabel');
-  const enableBtn   = el('enableMicBtn');
-  const enableLabel = el('enableMicLabel');
 
   if (state === 'listening') {
     if (ring)  ring.classList.add('active');
     if (label) label.classList.add('active');
-    if (enableBtn)   enableBtn.classList.add('active');
-    if (enableLabel) enableLabel.textContent = 'Listening...';
   } else {
     if (ring)  ring.classList.remove('active');
     if (label) label.classList.remove('active');
-    if (enableBtn)   enableBtn.classList.remove('active');
-    if (enableLabel) enableLabel.textContent = 'Disable Microphone';
   }
 }
 
@@ -277,18 +271,16 @@ window.addEventListener('iris:audiostate', e => {
       showListeningIndicator(true);
       break;
 
-    default: // 'idle' — AI finished talking, mic is waiting for wake word!
+    default: // 'idle' — AI finished talking
       if (wakeStatus) wakeStatus.textContent = 'Standby';
       if (wakePill)   wakePill.classList.remove('active');
-      
-      // Reset the top pill text
       if (wakeText) wakeText.innerHTML = 'Say <strong>"Hey Iris"</strong> to ask another question';
       
       _showSkipBtn(false);
       showListeningIndicator(false);
       
-      // Bring the wake prompt back to the bottom of the chat bubble!
-      if (wp && window._audioMgr && window._audioMgr._micActive) {
+      // ONLY show the prompt if the user's master switch is ON
+      if (wp && window._audioMgr && window._audioMgr.isUserEnabled) {
         wp.style.display = 'block';
       }
   }
