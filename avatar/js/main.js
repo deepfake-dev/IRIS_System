@@ -1,48 +1,17 @@
-// js/main.js — Kiosk entry point
-// Absorbs all inline scripts from index3.html:
-//   - Three.js VRM renderer (portrait kiosk canvas)
-//   - Clock / session / typewriter / processQuery / ask
-//   - Quick-action buttons, language buttons, wake pill events
-//   - WebSocket + AudioManager + SignalHandler wiring
-//   - DEV: FBX drag-load + retargeting
-
 import * as THREE from 'three';
-import { GLTFLoader }              from 'three/addons/loaders/GLTFLoader.js';
-import { FBXLoader }               from 'three/addons/loaders/FBXLoader.js';
-import { VRMLoaderPlugin, VRMUtils } from '@pixiv/three-vrm';
-
+import { createScene }         from './scene.js';
 import { VRMController }       from './vrm.js';
 import { AnimationController } from './animation.js';
 import { SecureWebSocket }     from './websocket.js';
 import { SignalHandler }       from './signal.js';
 import { AudioManager }        from './audio.js';
 
-// ─────────────────────────────────────────────────────────────────────────────
-// THREE.JS — Kiosk VRM renderer
-// Uses the existing #vrm-canvas already in the DOM (no new canvas appended).
-// ─────────────────────────────────────────────────────────────────────────────
 const canvas  = document.getElementById('vrm-canvas');
 const col     = canvas.parentElement;
 const loading = document.getElementById('vrm-loading');
 
-const renderer = new THREE.WebGLRenderer({ canvas, antialias: true, alpha: true });
-renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
-renderer.outputColorSpace = THREE.SRGBColorSpace;
-
-const scene  = new THREE.Scene();
+const { scene, camera, renderer } = createScene(canvas);
 const clock  = new THREE.Clock();
-
-const camera = new THREE.PerspectiveCamera(32, 1, 0.1, 20);
-camera.position.set(0, 1.0, 2.0);
-camera.lookAt(0, 0.85, 0);
-
-scene.add(new THREE.AmbientLight(0xffffff, 0.7));
-const keyLight = new THREE.DirectionalLight(0xffffff, 1.8);
-keyLight.position.set(1, 2, 2);
-scene.add(keyLight);
-const rimLight = new THREE.DirectionalLight(0xa347e5, 0.6);
-rimLight.position.set(-2, 1, -1);
-scene.add(rimLight);
 
 function resizeRenderer() {
   const w = col.clientWidth;
@@ -54,27 +23,48 @@ function resizeRenderer() {
 resizeRenderer();
 new ResizeObserver(resizeRenderer).observe(col);
 
-// ─────────────────────────────────────────────────────────────────────────────
-// VRM + Animation controllers
-// ─────────────────────────────────────────────────────────────────────────────
 const vrmCtrl  = new VRMController(scene);
 const animCtrl = new AnimationController(vrmCtrl);
 
-// Load model, then hide spinner
+// Load initial model, then hide spinner
 vrmCtrl.load('./bsu_girl.vrm')
   .then(vrm => {
-    vrm.scene.scale.setScalar(0.75);
     loading.style.display = 'none';
-    window._devVrm = vrm; // exposed for DEV FBX loader below
     console.log('[VRM] Loaded. Expressions:', Object.keys(vrm.expressionManager?.expressionMap ?? {}));
   })
   .catch(err => {
+    // ... catch logic ...
     console.error('[VRM] Load error:', err);
     loading.querySelector('.vrm-loading-text').textContent = 'Model unavailable';
     loading.querySelector('.vrm-spinner').style.display = 'none';
   });
 
-// Idle breathing — gently bobs chest/spine so the model doesn't look static
+const VRM_MODELS = { female: './bsu_girl.vrm', male: './bsu_boy.vrm' };
+let _currentVRMGender = 'female';
+
+window.switchVRMModel = function(gender) {
+  if (gender === _currentVRMGender) return;
+  _currentVRMGender = gender;
+  const url = VRM_MODELS[gender] ?? VRM_MODELS.female;
+
+  loading.style.display = 'flex';
+  const loadingText = loading.querySelector('.vrm-loading-text');
+  const loadingSpinner = loading.querySelector('.vrm-spinner');
+  if (loadingText) loadingText.textContent = 'Switching model…';
+  if (loadingSpinner) loadingSpinner.style.display = '';
+
+  vrmCtrl.load(url)
+    .then(vrm => {
+      loading.style.display = 'none';
+      console.log(`[VRM] Switched to ${gender} model.`);
+    })
+    .catch(err => {
+      console.error('[VRM] Switch error:', err);
+      if (loadingText) loadingText.textContent = 'Model unavailable';
+      if (loadingSpinner) loadingSpinner.style.display = 'none';
+    });
+};
+
 function applyIdle(t) {
   if (!vrmCtrl.vrm?.humanoid) return;
   const chest = vrmCtrl.vrm.humanoid.getNormalizedBoneNode('chest');
@@ -83,24 +73,11 @@ function applyIdle(t) {
   if (spine) spine.rotation.x = Math.sin(t * 0.8 + 0.3) * 0.008;
 }
 
-// ─────────────────────────────────────────────────────────────────────────────
-// WebSocket + AudioManager + SignalHandler
-// ─────────────────────────────────────────────────────────────────────────────
 const signalHandler = new SignalHandler(vrmCtrl, animCtrl);
 
-// AudioManager auto-requests mic — no button needed on a kiosk
-// --- Replace your old audioMgr block with this ---
-
 const audioMgr = new AudioManager(
-  // Send raw binary PCM chunks directly to Python
-  buffer => {
-    if (ws) {
-      ws.sendBinary(buffer);
-    }
-  },
-  state => {
-    window.dispatchEvent(new CustomEvent('iris:audiostate', { detail: state }));
-  }
+  buffer => { if (ws) ws.sendBinary(buffer); },
+  state => { window.dispatchEvent(new CustomEvent('iris:audiostate', { detail: state })); }
 );
 audioMgr.onMouth(v => vrmCtrl.setMouth(v));
 signalHandler.audioMgr = audioMgr;
@@ -112,11 +89,7 @@ try {
     'ws://localhost:8080',
     payload => signalHandler.handle(payload),
     state   => {
-      const labels = {
-        connected:    'Connected to Python',
-        disconnected: 'Disconnected — retrying…',
-        reconnecting: 'Reconnecting…',
-      };
+      const labels = { connected: 'Connected to Python', disconnected: 'Disconnected — retrying…', reconnecting: 'Reconnecting…' };
       console.log('[WS]', labels[state] ?? state);
     },
     buf => audioMgr.receiveAudio(buf)
@@ -125,65 +98,39 @@ try {
   console.error('[Main] WebSocket init failed:', e);
 }
 
-// ─────────────────────────────────────────────────────────────────────────────
-// UI — typewriter, processQuery, quick buttons, wake pill
-// ─────────────────────────────────────────────────────────────────────────────
-
-// Safe getter — returns null silently if element doesn't exist
 const el = id => document.getElementById(id);
 
-// Clock & date (elements may not exist in updated UI — guard them)
-function tick() {
-  const now = new Date();
-  const clockEl = el('clock');
-  const dateEl  = el('date-display');
-  if (clockEl) clockEl.textContent = now.toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit' });
-  if (dateEl)  dateEl.textContent  = now.toLocaleDateString('en-US', { weekday: 'short', month: 'short', day: 'numeric' });
-}
-tick();
-setInterval(tick, 1000);
-
-// Session ID (element may not exist)
-const sessionEl = el('session');
-if (sessionEl) sessionEl.textContent = 'KSK-' + Math.random().toString(36).slice(2, 6).toUpperCase();
-
-let qCount = 0;
-
-// ── Avatar state: idle / listening ───────────────────────────────────────────
 function setAvatarState(state) {
   const ring  = el('avatarListenRing');
   const label = el('avatarListenLabel');
-  const tapBtn   = el('tapSpeakBtn');
-  const tapLabel = el('tapSpeakLabel');
+  const enableBtn   = el('enableMicBtn');
+  const enableLabel = el('enableMicLabel');
 
   if (state === 'listening') {
     if (ring)  ring.classList.add('active');
     if (label) label.classList.add('active');
-    if (tapBtn)   tapBtn.classList.add('active');
-    if (tapLabel) tapLabel.textContent = 'Listening...';
+    if (enableBtn)   enableBtn.classList.add('active');
+    if (enableLabel) enableLabel.textContent = 'Listening...';
   } else {
     if (ring)  ring.classList.remove('active');
     if (label) label.classList.remove('active');
-    if (tapBtn)   tapBtn.classList.remove('active');
-    if (tapLabel) tapLabel.textContent = 'Tap to Speak';
+    if (enableBtn)   enableBtn.classList.remove('active');
+    if (enableLabel) enableLabel.textContent = 'Disable Microphone';
   }
 }
+
 function showUserQuery(text) {
   const bubble   = el('userBubble');
   const userText = el('userText');
   if (!bubble || !userText) return;
   userText.textContent = text.trim();
   bubble.style.display = 'block';
-  // hide wake prompt once user has spoken
   const prompt = el('wakePrompt');
   if (prompt) prompt.style.display = 'none';
 }
 
-// ── Listening indicator in the AI bubble + avatar state ──────────────────────
 function showListeningIndicator(active) {
   const aiEl  = el('aiText');
-  const ind   = el('typingInd');
-
   setAvatarState(active ? 'listening' : 'idle');
 
   if (active) {
@@ -200,97 +147,56 @@ function showListeningIndicator(active) {
   }
 }
 
-// Typewriter — animates the AI speech bubble text
 let typeTimer = null;
+let _fullTypeText = ''; 
+
+function _showSkipBtn(show) {
+  const row = el('skipResponseRow');
+  if (row) row.style.display = show ? 'flex' : 'none';
+}
+
+window.doSkipResponse = function() {
+  if (typeTimer) { clearInterval(typeTimer); typeTimer = null; }
+  const aiEl = el('aiText');
+  if (aiEl && _fullTypeText) {
+    aiEl.innerHTML = _fullTypeText;
+    aiEl.scrollTop = aiEl.scrollHeight;
+  }
+  
+  if (audioMgr) {
+    audioMgr.stopAll(); // Kills active audio and empties the queue instantly
+  }
+  _showSkipBtn(false);
+
+  // Shoot a message to Python to kill the generator
+  if (ws) {
+    ws.send({ command: 'interrupt' });
+  }
+};
+
 function typeText(text) {
   const aiEl = el('aiText');
   if (!aiEl) return;
-  aiEl.dataset.hasResponse = '1'; // mark so listening indicator doesn't clear it
+  aiEl.dataset.hasResponse = '1';
   aiEl.innerHTML = '';
+  _fullTypeText = text;
   let i = 0;
   clearInterval(typeTimer);
+  _showSkipBtn(true);
   typeTimer = setInterval(() => {
     if (i < text.length) {
       aiEl.innerHTML = text.slice(0, ++i) + '<span class="cursor"></span>';
     } else {
       aiEl.innerHTML = text;
       clearInterval(typeTimer);
+      typeTimer = null;
+      _showSkipBtn(false);
     }
   }, 18);
 }
 
-function setTopic(topic) {
-  const topicEl = el('topicTag');
-  if (topicEl) topicEl.textContent = topic;
-}
+typeText("Good day! I'm Iris, the AI Assistant for Batangas State University - TNEU - Alangilan Campus. How may I assist you today?");
 
-// Greeting on load
-typeText("Good day! I'm your Campus AI Assistant. I can help you with enrollment and registration steps, campus directions, citizen's charter services, official document requests, scholarship inquiries, and more. How may I assist you today?");
-
-async function ask(text) {
-  await processQuery(text);
-}
-
-async function processQuery(text) {
-  qCount++;
-  const qCountEl = el('qCount');
-  if (qCountEl) qCountEl.textContent = qCount;
-
-  // Show what the user said in the user bubble
-  showUserQuery(text);
-
-  // Reset hasResponse flag for the new query
-  const aiEl = el('aiText');
-  if (aiEl) delete aiEl.dataset.hasResponse;
-
-  const ind = el('typingInd');
-  if (ind)  ind.style.display = 'flex';
-  if (aiEl) aiEl.innerHTML = '<span style="font-style:italic;opacity:.6;font-size:14px">Retrieving information from campus knowledge base…</span>';
-
-  const t = text.toLowerCase();
-  if      (t.includes('enrol')    || t.includes('registr'))                      setTopic('Enrollment');
-  else if (t.includes('map')      || t.includes('direct') || t.includes('where')) setTopic('Navigation');
-  else if (t.includes('charter')  || t.includes('service'))                       setTopic("Citizen's Charter");
-  else if (t.includes('document') || t.includes('certif') || t.includes('tor'))   setTopic('Documents');
-  else if (t.includes('scholar'))                                                  setTopic('Scholarship');
-  else if (t.includes('pay')      || t.includes('tuition') || t.includes('fee'))  setTopic('Finance');
-  else if (t.includes('event')    || t.includes('announc'))                        setTopic('Announcements');
-  else setTopic('General');
-
-  try {
-    const res  = await fetch('/api/chat', {
-      method:  'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body:    JSON.stringify({ message: text }),
-    });
-    const data = await res.json();
-    if (!res.ok) throw new Error(data.error || 'Server error');
-    if (ind) ind.style.display = 'none';
-    typeText(data.reply);
-  } catch (e) {
-    if (ind) ind.style.display = 'none';
-    typeText("I'm currently unable to connect to the knowledge base. Please approach the information desk or the Registrar's Office for assistance. Thank you for your patience.");
-    console.error('[API]', e);
-  }
-}
-
-// Quick-action buttons (may not exist if removed from HTML)
-document.querySelectorAll('.q-btn').forEach(btn => {
-  btn.addEventListener('click', () => {
-    const query = btn.dataset.query;
-    if (query) ask(query);
-  });
-});
-
-// Language buttons (may not exist if removed from HTML)
-document.querySelectorAll('.lang-btn').forEach(btn => {
-  btn.addEventListener('click', () => {
-    document.querySelectorAll('.lang-btn').forEach(b => b.classList.remove('active'));
-    btn.classList.add('active');
-  });
-});
-
-// Wake pill — guard all three elements since they may have been removed
 const wakePill   = el('wake-pill');
 const wakeText   = el('wake-text');
 const wakeStatus = el('wake-status');
@@ -298,6 +204,11 @@ const wakeStatus = el('wake-status');
 window.addEventListener('iris:wakeword', () => {
   _responseStarted = false;
   hideQR();
+  
+  // Hide wake prompt when wake word is detected
+  const wp = el('wakePrompt');
+  if (wp) wp.style.display = 'none';
+
   if (wakePill)   wakePill.classList.add('active');
   if (wakeStatus) wakeStatus.textContent = 'Detected!';
   setTimeout(() => { if (wakeStatus) wakeStatus.textContent = 'Listening'; }, 1000);
@@ -305,13 +216,14 @@ window.addEventListener('iris:wakeword', () => {
 
 window.addEventListener('iris:listening', e => {
   showListeningIndicator(!!e.detail);
+  const wp = el('wakePrompt');
 
-  if (e.detail) {
+  if (e.detail) { // Recording user query
+    if (wp) wp.style.display = 'none';
     if (wakePill)   wakePill.classList.add('active');
     if (wakeText)   wakeText.innerHTML = 'Listening…';
     if (wakeStatus) wakeStatus.textContent = 'Active';
-  } else {
-    // Listening ended — show processing placeholder
+  } else { // Finished recording, sending to knowledge base
     const ind  = el('typingInd');
     const aiEl = el('aiText');
     if (ind)  ind.style.display = 'flex';
@@ -320,34 +232,51 @@ window.addEventListener('iris:listening', e => {
       aiEl.innerHTML = '<span style="font-style:italic;opacity:.6;font-size:14px">Retrieving from campus knowledge base…</span>';
     }
     if (wakePill)   wakePill.classList.remove('active');
-    if (wakeText)   wakeText.innerHTML = 'Say <strong>"Hey Iris"</strong> to start speaking';
-    if (wakeStatus) wakeStatus.textContent = 'Listening';
+    if (wakeText)   wakeText.innerHTML = 'Processing request...';
+    if (wakeStatus) wakeStatus.textContent = 'Working';
   }
 });
 
 window.addEventListener('iris:audiostate', e => {
+  const wp = el('wakePrompt');
+
   switch (e.detail) {
-    case 'speaking':
+    case 'speaking': // AI is talking out loud
       if (wakeStatus) wakeStatus.textContent = 'Speaking';
+      if (wp) wp.style.display = 'none';
       showListeningIndicator(false);
+      _showSkipBtn(true);
       break;
-    case 'listening':
+
+    case 'listening': // AI is recording audio
       if (wakeStatus) wakeStatus.textContent = 'Active';
+      if (wp) wp.style.display = 'none';
+      _showSkipBtn(false);
       showListeningIndicator(true);
       break;
-    default:
-      if (wakeStatus) wakeStatus.textContent = 'Listening';
+
+    default: // 'idle' — AI finished talking, mic is waiting for wake word!
+      if (wakeStatus) wakeStatus.textContent = 'Standby';
       if (wakePill)   wakePill.classList.remove('active');
+      
+      // Reset the top pill text
+      if (wakeText) wakeText.innerHTML = 'Say <strong>"Hey Iris"</strong> to ask another question';
+      
+      _showSkipBtn(false);
       showListeningIndicator(false);
+      
+      // Bring the wake prompt back to the bottom of the chat bubble!
+      if (wp && window._audioMgr && window._audioMgr._micActive) {
+        wp.style.display = 'block';
+      }
   }
 });
 
-// ── QR code helpers ───────────────────────────────────────────────────────────
 const URL_REGEX = /(https?:\/\/[^\s]+)/g;
 let _lastQRUrl  = null;
 
 function showQR(url) {
-  if (_lastQRUrl === url) return;   // already showing this URL
+  if (_lastQRUrl === url) return;
   _lastQRUrl = url;
 
   const panel  = el('qrPanel');
@@ -356,11 +285,8 @@ function showQR(url) {
   if (!panel || !qrDiv) return;
 
   qrDiv.innerHTML = '';
-  // QRCode is a UMD global loaded via the <script> tag in index.html
-  if (typeof QRCode === 'undefined') {
-    console.warn('[QR] QRCode library not loaded');
-    return;
-  }
+  if (typeof QRCode === 'undefined') return;
+  
   new QRCode(qrDiv, {
     text:          url,
     width:         160,
@@ -379,7 +305,6 @@ function hideQR() {
   _lastQRUrl = null;
 }
 
-// ── Streaming AI response ─────────────────────────────────────────────────────
 let _responseStarted  = false;
 let _accumulatedText  = '';
 
@@ -394,154 +319,31 @@ window.addEventListener('iris:chunk', e => {
     aiEl.dataset.hasResponse = '1';
     aiEl.textContent = '';
     if (ind) ind.style.display = 'none';
-    qCount++;
+    
     const qCountEl = el('qCount');
-    if (qCountEl) qCountEl.textContent = qCount;
+    if (qCountEl) qCountEl.textContent = parseInt(qCountEl.textContent || 0) + 1;
   }
 
   _accumulatedText += e.detail;
   aiEl.textContent += e.detail;
   aiEl.scrollTop = aiEl.scrollHeight;
 
-  // Scan accumulated text for a URL and show QR if found
   const matches = _accumulatedText.match(URL_REGEX);
-  if (matches && matches.length > 0) {
-    showQR(matches[0]);
-  }
+  if (matches && matches.length > 0) showQR(matches[0]);
 });
 
-// ─────────────────────────────────────────────────────────────────────────────
-// Render loop
-// ─────────────────────────────────────────────────────────────────────────────
 function animate() {
   requestAnimationFrame(animate);
-  const delta   = clock.getDelta();
+  let delta = clock.getDelta();
   const elapsed = clock.elapsedTime;
+  
+  if (delta > 0.033) {
+    delta = 0.033;
+  }
+
   applyIdle(elapsed);
   vrmCtrl.update(delta);
   animCtrl.update(delta);
-  window._devMixerUpdate?.(delta); // DEV FBX mixer hook
   renderer.render(scene, camera);
 }
 animate();
-
-// ─────────────────────────────────────────────────────────────────────────────
-// DEV — FBX loader (remove entire block before deployment)
-// ─────────────────────────────────────────────────────────────────────────────
-const MIXAMO_TO_VRM = {
-  mixamorigHips:'hips', mixamorigSpine:'spine', mixamorigSpine1:'chest',
-  mixamorigSpine2:'upperChest', mixamorigNeck:'neck', mixamorigHead:'head',
-  mixamorigLeftShoulder:'leftShoulder', mixamorigLeftArm:'leftUpperArm',
-  mixamorigLeftForeArm:'leftLowerArm', mixamorigLeftHand:'leftHand',
-  mixamorigRightShoulder:'rightShoulder', mixamorigRightArm:'rightUpperArm',
-  mixamorigRightForeArm:'rightLowerArm', mixamorigRightHand:'rightHand',
-  mixamorigLeftUpLeg:'leftUpperLeg', mixamorigLeftLeg:'leftLowerLeg',
-  mixamorigLeftFoot:'leftFoot', mixamorigLeftToeBase:'leftToes',
-  mixamorigRightUpLeg:'rightUpperLeg', mixamorigRightLeg:'rightLowerLeg',
-  mixamorigRightFoot:'rightFoot', mixamorigRightToeBase:'rightToes',
-  mixamorigLeftHandThumb1:'leftThumbMetacarpal', mixamorigLeftHandThumb2:'leftThumbProximal',
-  mixamorigLeftHandThumb3:'leftThumbDistal',
-  mixamorigLeftHandIndex1:'leftIndexProximal', mixamorigLeftHandIndex2:'leftIndexIntermediate', mixamorigLeftHandIndex3:'leftIndexDistal',
-  mixamorigRightHandThumb1:'rightThumbMetacarpal', mixamorigRightHandThumb2:'rightThumbProximal',
-  mixamorigRightHandThumb3:'rightThumbDistal',
-  mixamorigRightHandIndex1:'rightIndexProximal', mixamorigRightHandIndex2:'rightIndexIntermediate', mixamorigRightHandIndex3:'rightIndexDistal',
-};
-const REALLUSION_TO_VRM = {
-  'CC_Base_Hip':'hips','CC_Base_Spine01':'spine','CC_Base_Spine02':'chest',
-  'CC_Base_NeckTwist01':'neck','CC_Base_Head':'head',
-  'CC_Base_L_Clavicle':'leftShoulder','CC_Base_L_Upperarm':'leftUpperArm',
-  'CC_Base_L_Forearm':'leftLowerArm','CC_Base_L_Hand':'leftHand',
-  'CC_Base_R_Clavicle':'rightShoulder','CC_Base_R_Upperarm':'rightUpperArm',
-  'CC_Base_R_Forearm':'rightLowerArm','CC_Base_R_Hand':'rightHand',
-  'CC_Base_L_Thigh':'leftUpperLeg','CC_Base_L_Calf':'leftLowerLeg',
-  'CC_Base_L_Foot':'leftFoot','CC_Base_L_ToeBase':'leftToes',
-  'CC_Base_R_Thigh':'rightUpperLeg','CC_Base_R_Calf':'rightLowerLeg',
-  'CC_Base_R_Foot':'rightFoot','CC_Base_R_ToeBase':'rightToes',
-};
-const DEV_BONE_MAP = { ...MIXAMO_TO_VRM, ...REALLUSION_TO_VRM };
-
-let devMixer = null;
-
-function devRetarget(clip, fbx, vrm) {
-  const tracks = [];
-  let mapped = 0, skipped = 0;
-
-  clip.tracks.forEach(track => {
-    const dot      = track.name.lastIndexOf('.');
-    const boneName = track.name.slice(0, dot);
-    const prop     = track.name.slice(dot + 1);
-    const clean    = boneName.split('|').pop().trim();
-    const vrmBone  = DEV_BONE_MAP[clean];
-    if (!vrmBone) { skipped++; return; }
-
-    const vrmNode    = vrm.humanoid.getNormalizedBoneNode(vrmBone);
-    const mixamoNode = fbx.getObjectByName(clean);
-    if (!vrmNode || !mixamoNode) { skipped++; return; }
-
-    if (prop === 'quaternion') {
-      const restQuatInv    = mixamoNode.quaternion.clone().invert();
-      const parentWorld    = new THREE.Quaternion();
-      if (mixamoNode.parent) mixamoNode.parent.getWorldQuaternion(parentWorld);
-      const parentWorldInv = parentWorld.clone().invert();
-      const values    = track.values;
-      const newValues = new Float32Array(values.length);
-      const q         = new THREE.Quaternion();
-      for (let i = 0; i < values.length; i += 4) {
-        q.fromArray(values, i);
-        q.multiply(restQuatInv);
-        q.premultiply(parentWorld);
-        q.multiply(parentWorldInv);
-        q.toArray(newValues, i);
-      }
-      tracks.push(new THREE.QuaternionKeyframeTrack(`${vrmNode.name}.${prop}`, track.times, newValues));
-      mapped++;
-    } else if (prop === 'position' && vrmBone === 'hips') {
-      const restPosInv  = mixamoNode.position.clone().multiplyScalar(-1);
-      const parentWorld = new THREE.Quaternion();
-      if (mixamoNode.parent) mixamoNode.parent.getWorldQuaternion(parentWorld);
-      const vrmRestPos  = vrmNode.position.clone();
-      const values    = track.values;
-      const newValues = new Float32Array(values.length);
-      const v         = new THREE.Vector3();
-      for (let i = 0; i < values.length; i += 3) {
-        v.fromArray(values, i);
-        v.add(restPosInv);
-        v.applyQuaternion(parentWorld);
-        v.multiplyScalar(0.01);
-        v.add(vrmRestPos);
-        v.toArray(newValues, i);
-      }
-      tracks.push(new THREE.VectorKeyframeTrack(`${vrmNode.name}.${prop}`, track.times, newValues));
-      mapped++;
-    } else {
-      skipped++;
-    }
-  });
-
-  console.log(`[DEV] Retargeted: ${mapped} mapped, ${skipped} skipped`);
-  return new THREE.AnimationClip(clip.name, clip.duration, tracks);
-}
-
-document.getElementById('dev-fbx-input').addEventListener('change', e => {
-  const file = e.target.files[0];
-  if (!file) return;
-
-  const vrm = window._devVrm;
-  if (!vrm) { alert('VRM not loaded yet.'); return; }
-
-  const url = URL.createObjectURL(file);
-  new FBXLoader().load(url, fbx => {
-    URL.revokeObjectURL(url);
-    if (!fbx.animations.length) { alert('No animations in this FBX.'); return; }
-
-    const clip = devRetarget(fbx.animations[0], fbx, vrm);
-
-    if (devMixer) { devMixer.stopAllAction(); devMixer.uncacheRoot(devMixer.getRoot()); }
-    devMixer = new THREE.AnimationMixer(vrm.scene);
-    devMixer.clipAction(clip).play();
-
-    window._devMixerUpdate = dt => devMixer.update(dt);
-    document.getElementById('dev-anim-label').textContent = file.name;
-    console.log('[DEV] Animation loaded:', fbx.animations[0].name);
-  });
-});

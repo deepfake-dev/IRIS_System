@@ -1,21 +1,18 @@
-// js/scene.js — Three.js scene, camera, renderer, lights, controls
 import * as THREE from 'three';
 import { OrbitControls } from 'three/addons/controls/OrbitControls.js';
 
-export function createScene() {
+export function createScene(canvas) {
   // ── Renderer ───────────────────────────────────────────────────────────
-  const renderer = new THREE.WebGLRenderer({ antialias: true, alpha: true });
+  const renderer = new THREE.WebGLRenderer({ canvas: canvas, antialias: true, alpha: true });
   renderer.setSize(window.innerWidth, window.innerHeight);
   renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
   renderer.outputColorSpace = THREE.SRGBColorSpace;
   renderer.shadowMap.enabled = true;
   renderer.shadowMap.type = THREE.PCFSoftShadowMap;
-  document.body.appendChild(renderer.domElement);
 
   // ── Scene ──────────────────────────────────────────────────────────────
   const scene = new THREE.Scene();
 
-  // Background texture — falls back to solid colour if file missing
   const bgLoader = new THREE.TextureLoader();
   bgLoader.load(
     './kist-1.webp',
@@ -25,13 +22,8 @@ export function createScene() {
   );
 
   // ── Camera ─────────────────────────────────────────────────────────────
-  const camera = new THREE.PerspectiveCamera(
-    30,
-    window.innerWidth / window.innerHeight,
-    0.1,
-    20
-  );
-  camera.position.set(0, 1.4, 1.5);
+  const camera = new THREE.PerspectiveCamera(30, window.innerWidth / window.innerHeight, 0.1, 20);
+  camera.position.set(0, 3, 8);
 
   // ── Lights ─────────────────────────────────────────────────────────────
   const dirLight = new THREE.DirectionalLight(0xffffff, 1.5);
@@ -42,17 +34,10 @@ export function createScene() {
 
   // ── Orbit controls ─────────────────────────────────────────────────────
   const controls = new OrbitControls(camera, renderer.domElement);
-  controls.target.set(0, 1.4, 0);
+  controls.target.set(0, 3, 0); // Lowered the focus point to chest/face level
   controls.enableDamping = true;
   controls.dampingFactor = 0.08;
   controls.update();
-
-  // ── Resize handler ──────────────────────────────────────────────────────
-  window.addEventListener('resize', () => {
-    camera.aspect = window.innerWidth / window.innerHeight;
-    camera.updateProjectionMatrix();
-    renderer.setSize(window.innerWidth, window.innerHeight);
-  });
 
   return { scene, camera, renderer, controls };
 }

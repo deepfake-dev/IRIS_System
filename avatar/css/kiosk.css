@@ -113,7 +113,7 @@ html, body {
   flex-shrink: 0;
 }
 
-.tap-speak-btn {
+.enable-mic-btn {
   display: flex;
   align-items: center;
   gap: 8px;
@@ -130,20 +130,20 @@ html, body {
   transition: background .15s, color .15s, border-color .15s;
   white-space: nowrap;
 }
-.tap-speak-btn:hover { background: var(--ink); color: #fff; }
-.tap-speak-btn.active {
+.enable-mic-btn:hover { background: var(--ink); color: #fff; }
+.enable-mic-btn.active {
   background: var(--blue);
   border-color: var(--blue);
   color: #fff;
 }
-.tap-speak-dot {
+.enable-mic-dot {
   width: 7px; height: 7px;
   border-radius: 50%;
   background: currentColor;
   flex-shrink: 0;
   animation: blink 2s ease-in-out infinite;
 }
-.tap-speak-btn.active .tap-speak-dot { animation: blink .8s ease-in-out infinite; }
+.enable-mic-btn.active .enable-mic-dot { animation: blink .8s ease-in-out infinite; }
 
 .topbar-right {
   display: flex;
@@ -568,11 +568,13 @@ html, body {
    ══════════════════════════════════════════ */
 .bottombar {
   display: flex;
+  justify-content: space-between;
   align-items: center;
   padding: 10px 32px;
   border-top: 2px solid var(--ink);
   background: #fff;
   flex-shrink: 0;
+  width: 100%;
 }
 
 .bb-left {
@@ -584,6 +586,19 @@ html, body {
 }
 
 .bb-left strong {
+  color: var(--ink);
+  font-weight: 700;
+}
+
+.bb-right {
+  font-family: var(--font);
+  font-size: clamp(9px, 1.1vw, 11px);
+  letter-spacing: 2px;
+  color: var(--muted);
+  text-transform: uppercase;
+}
+
+.bb-right strong {
   color: var(--ink);
   font-weight: 700;
 }
@@ -678,7 +693,7 @@ html, body {
   .school-tagline { display: none; }
   .topbar-divider { display: none; }
 
-  .tap-speak-btn { padding: 6px 12px; font-size: 9px; letter-spacing: 1px; }
+  .enable-mic-btn { padding: 6px 12px; font-size: 9px; letter-spacing: 1px; }
   .deepfake-btn  { padding: 6px 10px; font-size: 9px; letter-spacing: 1px; }
 
   .bubble-section { padding: 12px 16px; }
@@ -696,7 +711,7 @@ html, body {
   /* Hide deepfake btn on very small screens, keep tap-speak */
   .deepfake-btn { display: none; }
 
-  .tap-speak-btn { padding: 5px 10px; font-size: 8px; }
+  .enable-mic-btn { padding: 5px 10px; font-size: 8px; }
 
   .bubble-section { padding: 10px 12px; }
   .bubble-body { font-size: 13px; }
@@ -716,4 +731,95 @@ html, body {
   .topbar { padding: 16px 48px; }
   .bottombar { padding: 14px 48px; }
   .bubble-section { padding: 32px 40px; }
+}
+
+/* ══════════════════════════════════════════
+   TOPBAR BUTTON DIVIDER
+   ══════════════════════════════════════════ */
+.topbar-right {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+.topbar-btn-divider {
+  width: 1px;
+  height: 24px;
+  background: var(--light);
+  flex-shrink: 0;
+}
+
+/* ══════════════════════════════════════════
+   GENDER TOGGLE BUTTON
+   ══════════════════════════════════════════ */
+.gender-toggle-btn {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  border: 2px solid var(--ink);
+  padding: 7px 16px;
+  font-family: var(--font);
+  font-size: clamp(9px, 1.2vw, 11px);
+  font-weight: 700;
+  letter-spacing: 2px;
+  text-transform: uppercase;
+  color: var(--ink);
+  background: #fff;
+  cursor: pointer;
+  transition: background .15s, color .15s, border-color .15s;
+  white-space: nowrap;
+}
+.gender-toggle-btn:hover {
+  background: var(--ink);
+  color: #fff;
+}
+.gender-toggle-btn #genderToggleIcon {
+  font-size: 14px;
+  line-height: 1;
+}
+/* Male state — uses a purple-blue accent */
+.gender-toggle-btn.male {
+  border-color: #4a3fa0;
+  color: #4a3fa0;
+  background: #f0eeff;
+}
+.gender-toggle-btn.male:hover {
+  background: #4a3fa0;
+  color: #fff;
+}
+
+/* ══════════════════════════════════════════
+   SKIP RESPONSE ROW + BUTTON
+   ══════════════════════════════════════════ */
+.skip-response-row {
+  display: flex;
+  justify-content: flex-end;
+  padding: 6px 16px 4px;
+  flex-shrink: 0;
+}
+.skip-response-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  border: 1.5px solid var(--light);
+  padding: 5px 14px;
+  font-family: var(--font);
+  font-size: clamp(8px, 1vw, 10px);
+  font-weight: 700;
+  letter-spacing: 2px;
+  text-transform: uppercase;
+  color: var(--muted);
+  background: #fff;
+  cursor: pointer;
+  border-radius: 2px;
+  transition: background .12s, color .12s, border-color .12s;
+  white-space: nowrap;
+}
+.skip-response-btn:hover {
+  border-color: var(--blue);
+  color: var(--blue);
+  background: #f0f0ff;
+}
+.skip-response-btn svg {
+  flex-shrink: 0;
+  opacity: .7;
 }

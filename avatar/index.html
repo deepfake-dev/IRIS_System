@@ -3,7 +3,7 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>IRIS — Campus AI Assistant</title>
+  <title>IRIS — AI Assistant for the Batangas State University</title>
   <meta http-equiv="Content-Security-Policy"
         content="default-src 'self';
                  script-src 'self' https://cdn.jsdelivr.net https://fonts.cdnfonts.com 'unsafe-inline';
@@ -11,7 +11,7 @@
                  font-src   https://fonts.cdnfonts.com data:;
                  connect-src 'self' blob: ws://localhost:8080 wss://localhost:8443;
                  img-src 'self' data: blob:;
-                 worker-src blob:;">
+                 worker-src 'self' blob:;">
   <link rel="icon" type="image/png" href="./icon.png">
   <link href="https://fonts.cdnfonts.com/css/hahmlet" rel="stylesheet">
   <link rel="stylesheet" href="./css/kiosk.css">
@@ -22,8 +22,6 @@
 <div class="bg-overlay"></div>
 
 <div class="kiosk">
-
-  <!-- ── TOP BAR ── -->
   <div class="topbar">
     <div class="topbar-left">
       <div class="school-seal">
@@ -35,48 +33,39 @@
       </div>
       <div class="school-info">
         <div class="school-name">IRIS</div>
-        <div class="school-tagline">Intelligent Retrieval-Augmented Institutional Support Bot</div>
+        <div class="school-tagline">Intelligent Retrieval-Augmented Institutional Support Agent</div>
       </div>
     </div>
 
     <div class="topbar-center"></div>
 
     <div class="topbar-right">
-      <button class="tap-speak-btn" id="tapSpeakBtn" onclick="toggleTapToSpeak()">
-        <div class="tap-speak-dot"></div>
-        <span id="tapSpeakLabel">Enable Microphone</span>
+      <button class="gender-toggle-btn" id="genderToggleBtn" onclick="toggleVRMGender()">
+        <span id="genderToggleIcon">♀</span>
+        <span id="genderToggleLabel">Female</span>
+      </button>
+      <div class="topbar-btn-divider"></div>
+      <button class="enable-mic-btn" id="enableMicBtn" onclick="toggleMicrophone()">
+        <div class="enable-mic-dot"></div>
+        <span id="enableMicLabel">Enable Microphone</span>
       </button>
     </div>
   </div>
-
-  <!-- ── MAIN ── -->
   <div class="main">
-
-    <!-- AVATAR -->
     <div class="avatar-col">
       <canvas id="vrm-canvas"></canvas>
       <div id="vrm-loading">
         <div class="vrm-spinner"></div>
         <div class="vrm-loading-text">Loading model...</div>
       </div>
-      <!-- Listening ring -->
       <div class="avatar-listen-ring" id="avatarListenRing"></div>
-      <!-- Listening label -->
       <div class="avatar-listen-label" id="avatarListenLabel">
         <div class="listen-bars">
-          <div class="l-bar"></div>
-          <div class="l-bar"></div>
-          <div class="l-bar"></div>
-          <div class="l-bar"></div>
-          <div class="l-bar"></div>
+          <div class="l-bar"></div><div class="l-bar"></div><div class="l-bar"></div><div class="l-bar"></div><div class="l-bar"></div>
         </div>
         <span class="listen-label-text">Listening</span>
         <div class="listen-bars">
-          <div class="l-bar"></div>
-          <div class="l-bar"></div>
-          <div class="l-bar"></div>
-          <div class="l-bar"></div>
-          <div class="l-bar"></div>
+          <div class="l-bar"></div><div class="l-bar"></div><div class="l-bar"></div><div class="l-bar"></div><div class="l-bar"></div>
         </div>
       </div>
       <div class="avatar-label">
@@ -85,12 +74,10 @@
       </div>
     </div>
 
-    <!-- CONVERSATION -->
     <div class="conv-col">
       <div class="bubble-section">
         <div class="bubble-label">Conversation</div>
 
-        <!-- USER MESSAGE -->
         <div class="user-bubble" id="userBubble" style="display:none;">
           <div class="user-bubble-header">
             <div class="user-avatar-pill">U</div>
@@ -99,32 +86,38 @@
           <div class="user-bubble-body" id="userText"></div>
         </div>
 
-        <!-- AI RESPONSE -->
         <div class="speech-bubble">
           <div class="bubble-ai-header">
-            <div class="ai-avatar-pill">A</div>
+            <div class="ai-avatar-pill">I</div>
             <div class="ai-title-wrap">
               <div class="ai-name">Iris</div>
-              <div class="ai-subtitle">Hello Red Spartans!</div>
+              <div class="ai-subtitle">Intelligent Retrieval-Augmented Institutional Support Agent</div>
             </div>
             <div class="typing-indicator" id="typingInd" style="display:none">
-              <div class="t-dot"></div>
-              <div class="t-dot"></div>
-              <div class="t-dot"></div>
+              <div class="t-dot"></div><div class="t-dot"></div><div class="t-dot"></div>
               <span>Processing</span>
             </div>
           </div>
           <div class="bubble-body" id="aiText"></div>
+          
+          <div class="skip-response-row" id="skipResponseRow" style="display:none;">
+            <button class="skip-response-btn" id="skipResponseBtn" onclick="skipResponse()">
+              <svg width="12" height="12" viewBox="0 0 12 12" fill="none" xmlns="http://www.w3.org/2000/svg">
+                <rect x="1" y="1" width="4" height="10" rx="1" fill="currentColor"/>
+                <polygon points="7,1 11,6 7,11" fill="currentColor"/>
+              </svg>
+              Skip Response
+            </button>
+          </div>
+          
           <div class="wake-prompt" id="wakePrompt">
             Microphone is active. Say the wake word to ask a question.
             <strong>"Hey Iris"</strong>
             <div class="wake-prompt-dots">
-              <div class="wp-dot"></div>
-              <div class="wp-dot"></div>
-              <div class="wp-dot"></div>
+              <div class="wp-dot"></div><div class="wp-dot"></div><div class="wp-dot"></div>
             </div>
           </div>
-          <!-- QR Code panel — shown when response contains a URL -->
+          
           <div class="qr-panel" id="qrPanel" style="display:none;">
             <div class="qr-label">Scan to open</div>
             <div id="qrCode"></div>
@@ -133,25 +126,13 @@
         </div>
       </div>
     </div>
-
   </div>
 
-  <!-- ── BOTTOM BAR ── -->
   <div class="bottombar">
     <div class="bb-left">Queries today: <strong id="qCount">0</strong></div>
+    <div class="bb-right">Developed by <strong>KALK</strong></div>
   </div>
-
 </div>
-
-<!-- DEV ONLY — remove before deployment -->
-<div id="dev-anim-btn">
-  <label id="dev-fbx-label">
-    <input type="file" accept=".fbx" id="dev-fbx-input">
-    🎬 Load FBX [Dev]
-  </label>
-  <div id="dev-anim-label">no animation loaded</div>
-</div>
-<!-- END DEV BLOCK -->
 
 <script type="importmap">
 {
@@ -164,46 +145,54 @@
 </script>
 
 <script>
-  /* ── Tap to Speak ── */
+  var _currentGender = 'female'; 
+  function toggleVRMGender() {
+    _currentGender = _currentGender === 'female' ? 'male' : 'female';
+    var icon  = document.getElementById('genderToggleIcon');
+    var label = document.getElementById('genderToggleLabel');
+    var btn   = document.getElementById('genderToggleBtn');
+    if (_currentGender === 'male') {
+      if (icon)  icon.textContent  = '♂';
+      if (label) label.textContent = 'Male';
+      btn.classList.add('male');
+    } else {
+      if (icon)  icon.textContent  = '♀';
+      if (label) label.textContent = 'Female';
+      btn.classList.remove('male');
+    }
+    if (typeof window.switchVRMModel === 'function') {
+      window.switchVRMModel(_currentGender);
+    }
+  }
+
+  function skipResponse() {
+    if (typeof window.doSkipResponse === 'function') window.doSkipResponse();
+  }
+
   var tapActive = false;
-  function toggleTapToSpeak() {
+  function toggleMicrophone() {
     tapActive = !tapActive;
     var prompt = document.getElementById('wakePrompt');
-    var aiText = document.getElementById('aiText');
 
     if (tapActive) {
-      // Trigger mic permission dialog on first tap
       if (window._audioMgr) window._audioMgr.init();
-      // Tell main.js to switch to listening state
       if (typeof setAvatarState === 'function') setAvatarState('listening');
-      if (!aiText.textContent.trim() && prompt) prompt.style.display = 'block';
+      // Always show prompt when mic is turned on
+      if (prompt) prompt.style.display = 'block'; 
     } else {
       if (typeof setAvatarState === 'function') setAvatarState('idle');
       if (prompt) prompt.style.display = 'none';
     }
   }
 
-  /* Auto-hide wake prompt when AI responds */
-  var aiTextEl = document.getElementById('aiText');
-  if (aiTextEl) {
-    new MutationObserver(function () {
-      if (aiTextEl.textContent.trim()) {
-        var p = document.getElementById('wakePrompt');
-        if (p) p.style.display = 'none';
-      }
-    }).observe(aiTextEl, { childList: true, subtree: true, characterData: true });
-  }
-
-  /* ── User query bubble ── */
   window.setUserQuery = function (text) {
     var bubble   = document.getElementById('userBubble');
     var userText = document.getElementById('userText');
     if (!text || !text.trim()) return;
     userText.textContent = text.trim();
     bubble.style.display = 'block';
-    var p = document.getElementById('wakePrompt');
-    if (p) p.style.display = 'none';
   };
+  
   document.addEventListener('userQuery', function (e) {
     if (e.detail && e.detail.text) window.setUserQuery(e.detail.text);
   });
@@ -212,6 +201,12 @@
 <script src="https://cdn.jsdelivr.net/npm/qrcodejs@1.0.0/qrcode.min.js"></script>
 
 <style>
+  .bottombar {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    width: 100%;
+  }
   .qr-panel {
     display: flex;
     flex-direction: column;

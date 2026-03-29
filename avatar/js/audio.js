@@ -1,5 +1,3 @@
-// js/audio.js — Raw PCM Streaming to Python + TTS audio playback
-
 export class AudioManager {
   constructor(sendBinary, onStateChange) {
     this._sendBinary    = sendBinary;
@@ -8,7 +6,6 @@ export class AudioManager {
     this._micCtx      = null;
     this._playbackCtx      = null;
     this._stream        = null;
-    this._processor     = null;
     this._audioQueue    = [];
     this._isPlaying     = false;
     this._mouthCallback = null;
@@ -20,11 +17,11 @@ export class AudioManager {
   onMouth(cb) { this._mouthCallback = cb; }
 
   async init() {
-    if (this._micCtx) return;   // already initialised — no-op
+    if (this._micCtx) return;   
     try {
       await this._init();
       this._onStateChange('idle');
-      console.log('[Audio] Mic initialised via Tap to Speak.');
+      console.log('[Audio] Mic initialised via Enable Microphone.');
     } catch (err) {
       console.error('[Audio] Init failed:', err);
       alert('Microphone access is required. Please allow microphone permissions in your browser, then try again.');
@@ -42,14 +39,12 @@ export class AudioManager {
   async _init() {
     if (this._micCtx) return;
 
-    // Force exact sample rate for openwakeword compatibility (16000Hz)
     this._micCtx = new AudioContext({ sampleRate: 16000 });
     this._playbackCtx = new AudioContext(); 
 
     if (this._micCtx.state === 'suspended') await this._micCtx.resume();
     if (this._playbackCtx.state === 'suspended') await this._playbackCtx.resume();
 
-    // 1. Explicitly prompt the browser for Microphone access
     if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) {
       throw new Error("getUserMedia not supported. Are you running on HTTPS or localhost?");
     }
@@ -64,37 +59,31 @@ export class AudioManager {
       }
     });
 
-    // 2. Route the mic through a ScriptProcessor to capture raw bytes
-    const source = this._micCtx.createMediaStreamSource(this._stream);
-    
-    // Create processor (bufferSize 4096, 1 input channel, 1 output channel)
-    this._processor = this._micCtx.createScriptProcessor(4096, 1, 1);
-    
-    this._processor.onaudioprocess = (e) => {
-      // Don't process/send mic data if the AI is currently speaking
-      if (!this._micActive || this._isPlaying) return;
+    await this._micCtx.audioWorklet.addModule('./js/mic-processor.js');
 
-      const inputData = e.inputBuffer.getChannelData(0); // Float32Array [-1.0 to 1.0]
-      const pcm16 = new Int16Array(inputData.length);
-      
-      // Convert Float32 to Int16 for Python's numpy format
-      for (let i = 0; i < inputData.length; i++) {
-        pcm16[i] = Math.max(-32768, Math.min(32767, inputData[i] * 32768));
-      }
-      
-      // Send raw binary buffer to WebSocket
-      this._sendBinary(pcm16.buffer);
+    const source = this._micCtx.createMediaStreamSource(this._stream);
+    const workletNode = new AudioWorkletNode(this._micCtx, 'mic-processor');
+    
+    workletNode.port.onmessage = (e) => {
+      if (!this._micActive || this._isPlaying) return;
+      this._sendBinary(e.data);
     };
 
-    // Connect nodes: Mic -> Processor -> Destination
-    source.connect(this._processor);
-    this._processor.connect(this._micCtx.destination);
+    source.connect(workletNode);
+    workletNode.connect(this._micCtx.destination);
     
     this._micActive = true;
-    console.log('[Audio] Mic active. Raw 16kHz PCM streaming started successfully.');
+    console.log('[Audio] Mic active. High-performance AudioWorklet streaming started.');
   }
 
-  // --- TTS Playback (Keep this exactly as you had it originally) ---
+  stopAll() {
+    this._audioQueue = []; // Empty the queue
+    if (this._currentSource) {
+      try { this._currentSource.stop(); } catch(e) {} // Kill the active audio instantly
+      this._currentSource = null;
+    }
+  }
+
   async _playNext() {
     if (this._audioQueue.length === 0) {
       this._isPlaying = false;

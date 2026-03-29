@@ -1,107 +1,62 @@
-// js/signal.js — Routes incoming WebSocket JSON payloads to VRM / audio / UI
-
 export class SignalHandler {
-  /**
-   * @param {VRMController}       vrmCtrl
-   * @param {AnimationController} animCtrl
-   * @param {AudioManager|null}   audioMgr
-   */
   constructor(vrmCtrl, animCtrl, audioMgr = null) {
     this.vrmCtrl  = vrmCtrl;
     this.animCtrl = animCtrl;
     this.audioMgr = audioMgr;
-
     window.sendSignal = data => this.handle(data);
   }
 
   handle(data) {
-    if (!this.vrmCtrl.ready) {
-      console.warn('[Signal] VRM not ready — signal ignored');
-      return;
-    }
-    if (typeof data !== 'object' || data === null) {
-      console.warn('[Signal] Invalid payload type');
-      return;
-    }
+    if (!this.vrmCtrl.ready) return;
+    if (typeof data !== 'object' || data === null) return;
 
-    // ── Wake word detected ────────────────────────────────────────────────
-    // Python sends: {"wakeword": true}
-    // main.js listens for this on window to update the wake pill UI.
     if (data.wakeword === true) {
       window.dispatchEvent(new CustomEvent('iris:wakeword'));
     }
 
-    // ── Listening state ───────────────────────────────────────────────────
-    // Python sends: {"listening": true} or {"listening": false}
     if (data.listening !== undefined) {
       window.dispatchEvent(new CustomEvent('iris:listening', { detail: data.listening }));
     }
 
-    // ── User query text (transcribed speech) ─────────────────────────────
-    // Python sends: {"user_query": "what are the enrollment steps?"}
     if (data.user_query !== undefined) {
       if (typeof window.setUserQuery === 'function') window.setUserQuery(data.user_query);
     }
 
-    // ── Streaming AI text chunk ───────────────────────────────────────────
-    // Python sends: {"ai_chunk": "some text"} for each token
     if (data.ai_chunk !== undefined) {
       window.dispatchEvent(new CustomEvent('iris:chunk', { detail: data.ai_chunk }));
     }
 
-    // ── Expression ────────────────────────────────────────────────────────
     if (data.expression !== undefined) {
       const intensity = typeof data.intensity === 'number' ? data.intensity : 1.0;
       this.vrmCtrl.setExpression(data.expression, intensity);
     }
 
-    // ── Mouth (shorthand for 'aa' expression) ─────────────────────────────
     if (data.mouth !== undefined) {
       this.vrmCtrl.setMouth(data.mouth);
     }
 
-    // ── Bone rotation ─────────────────────────────────────────────────────
     if (data.bone !== undefined && data.rotation !== undefined) {
-      if (typeof data.bone !== 'string') {
-        console.warn('[Signal] bone must be a string');
-      } else if (typeof data.rotation !== 'object') {
-        console.warn('[Signal] rotation must be an object {x,y,z}');
-      } else {
+      if (typeof data.bone === 'string' && typeof data.rotation === 'object') {
         this.vrmCtrl.setBoneRotation(data.bone, data.rotation);
       }
     }
 
-    // ── Head look-at ──────────────────────────────────────────────────────
-    if (data.lookAt !== undefined) {
-      if (typeof data.lookAt !== 'object') {
-        console.warn('[Signal] lookAt must be an object {x,y,z}');
-      } else {
-        this.vrmCtrl.setLookAt(data.lookAt);
-      }
+    if (data.lookAt !== undefined && typeof data.lookAt === 'object') {
+      this.vrmCtrl.setLookAt(data.lookAt);
     }
 
-    // ── Animation playback controls ───────────────────────────────────────
     if (data.animControl !== undefined) {
       switch (data.animControl) {
         case 'play':  this.animCtrl.play();  break;
         case 'pause': this.animCtrl.pause(); break;
         case 'stop':  this.animCtrl.stop();  break;
-        default: console.warn(`[Signal] Unknown animControl: ${data.animControl}`);
       }
     }
 
-    // ── Load animation from URL ───────────────────────────────────────────
-    if (data.animURL !== undefined) {
-      if (typeof data.animURL !== 'string' || !data.animURL.startsWith('/')) {
-        console.warn('[Signal] animURL must be a relative path starting with /');
-        return;
-      }
-      this.animCtrl.loadFromURL(data.animURL)
-        .then(name => console.log(`[Signal] Animation loaded: ${name}`))
-        .catch(err  => console.error('[Signal] Animation load failed:', err));
+    if (data.animURL !== undefined && typeof data.animURL === 'string' && data.animURL.startsWith('/')) {
+      this.animCtrl.loadFromURL(data.animURL).catch(err => console.error(err));
     }
 
-    // ── Animation speed ───────────────────────────────────────────────────
     if (data.animSpeed !== undefined) {
       const speed = parseFloat(data.animSpeed);
       if (!isNaN(speed) && speed > 0) this.animCtrl.setSpeed(speed);
