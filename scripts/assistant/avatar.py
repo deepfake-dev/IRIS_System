@@ -38,12 +38,6 @@ class IrisAvatar:
         self.iris._wakeword_triggered = False
 
         try:
-            # Send A pose signals
-            neutral = {'leftUpperArm': {'z': -1.2}, 'rightUpperArm': {'z': 1.2}}
-            for bone, rot in neutral.items():
-                self.current_pose[bone] = rot
-                await websocket.send(json.dumps({'bone': bone, 'rotation': rot}))
-
             recording_command = False
             command_chunks = []
             silent_chunks = 0
@@ -59,6 +53,15 @@ class IrisAvatar:
                         if data.get("command") == "interrupt":
                             self.iris.interrupt = True
                             print("\n[User skipped response. Interrupting AI...]")
+                        elif data.get("command") == "set_voice":
+                            gender = data.get("gender")
+                            print(gender)
+                            if gender == "male":
+                                self.iris.tts_voice = self.iris.male_voice
+                            else:
+                                self.iris.tts_voice = self.iris.female_voice
+                                
+                            print(f"\n[Voice switched to {gender} ({self.iris.tts_voice})]")
                     except:
                         pass
                     continue

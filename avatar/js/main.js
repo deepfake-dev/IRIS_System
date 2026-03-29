@@ -26,10 +26,25 @@ new ResizeObserver(resizeRenderer).observe(col);
 const vrmCtrl  = new VRMController(scene);
 const animCtrl = new AnimationController(vrmCtrl);
 
+function applyDefaultPose(gender) {
+  if (gender === 'female') {
+    // Female: Relaxed A-pose
+    vrmCtrl.setBoneRotation('leftUpperArm',  { z: -1.2 });
+    vrmCtrl.setBoneRotation('rightUpperArm', { z: 1.2 });
+  } else {
+    // Male: Arms resting fully down at the sides (approx 77 degrees down)
+    vrmCtrl.setBoneRotation('leftUpperArm',  { z: -1.45 });
+    vrmCtrl.setBoneRotation('rightUpperArm', { z: 1.45 });
+  }
+}
+
 // Load initial model, then hide spinner
 vrmCtrl.load('./bsu_girl.vrm')
   .then(vrm => {
     loading.style.display = 'none';
+
+    applyDefaultPose('female');
+
     console.log('[VRM] Loaded. Expressions:', Object.keys(vrm.expressionManager?.expressionMap ?? {}));
   })
   .catch(err => {
@@ -53,9 +68,16 @@ window.switchVRMModel = function(gender) {
   if (loadingText) loadingText.textContent = 'Switching model…';
   if (loadingSpinner) loadingSpinner.style.display = '';
 
+  if (ws) {
+    ws.send({ command: 'set_voice', gender: gender });
+  }
+
   vrmCtrl.load(url)
     .then(vrm => {
       loading.style.display = 'none';
+
+      applyDefaultPose(gender);
+
       console.log(`[VRM] Switched to ${gender} model.`);
     })
     .catch(err => {

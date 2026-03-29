@@ -29,7 +29,8 @@ class IrisAssistant:
     def __init__(self,
                  wake_word="hey_iris",
                  whisper_size="distil-large-v3",
-                 tts_voice='bf_isabella',
+                 male_voice='am_fenrir',
+                 female_voice='bf_isabella',
                  wake_word_path='models/wakeword/hey_iris.onnx',
                  wake_word_threshold = 0.4,
                  stt_threshold = 0.75,
@@ -44,7 +45,9 @@ class IrisAssistant:
                  iris_ai_port=8001):
 
         self.wakeword_threshold = wake_word_threshold
-        self.tts_voice = tts_voice
+        self.male_voice = male_voice
+        self.female_voice = female_voice
+        self.tts_voice = self.female_voice
         self.rag_top_k = rag_top_k
         self.stt_threshold = stt_threshold
         self.initial_retrieval_k = max(initial_retrieval_k, rag_top_k)
