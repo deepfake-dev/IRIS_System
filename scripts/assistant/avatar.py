@@ -5,6 +5,7 @@ import asyncio
 import websockets
 import random
 import time
+import ssl
 
 from vlm_handler import IrisAssistant
 
@@ -27,6 +28,10 @@ class IrisAvatar:
         self.loop.run_until_complete(self._run_server())
 
     async def _run_server(self):
+        ssl_context = ssl.SSLContext(ssl.PROTOCOL_TLS_SERVER)
+        # Point to the certs in your main IRIS folder
+        ssl_context.load_cert_chain(certfile="cert.pem", keyfile="key.pem")
+
         async with websockets.serve(self._handler, "0.0.0.0", self.port):
             asyncio.create_task(self._random_blink_loop())
             await asyncio.Future()

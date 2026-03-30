@@ -127,7 +127,7 @@ let _pendingText = '';
 let ws;
 try {
   ws = new SecureWebSocket(
-    'ws://localhost:8080',
+    `wss://${window.location.hostname}:8080`,
     payload => {
       // Intercept the new synced text command from Python
       if (payload.ai_text_sync !== undefined) {
