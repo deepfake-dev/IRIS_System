@@ -1,65 +1,77 @@
-"""
-IRIS Deepfake Detection Server
-─────────────────────────────────────────────────────────────────
-Serves the iris-web.html frontend and a single /analyze endpoint
-that streams pipeline progress via Server-Sent Events (SSE).
-
-Pipeline stages:
-  1. Receive URL
-  2. Route request
-  3. Download video   (yt-dlp)
-  4. Metadata scan    (C2PA / XMP / EXIF)
-  5. VLM classify     (Qwen3-VL)
-  6-8. Deepfake engine (VideoMAE + Wav2Vec + Fourier CNN)
-
-Install:
-  pip install fastapi uvicorn yt-dlp
-Run:
-  uvicorn server:app --host 0.0.0.0 --port 4321 --reload
-"""
+# ==============================================================================
+# Copyright (c) 2026 Batangas State University (The National Engineering University)
+# Project: IRIS Assistant System - Multimedia Provenance
+# ==============================================================================
 
 import asyncio
 import json
 import os
 import tempfile
 import time
+import socket
 import traceback
+import shutil
 from pathlib import Path
+import threading
+import signal
 
 import yt_dlp
-from fastapi import FastAPI, Query
+from fastapi import FastAPI, Query, UploadFile, File, HTTPException, Request
 from fastapi.responses import HTMLResponse, StreamingResponse
 from fastapi.middleware.cors import CORSMiddleware
+from openai import OpenAI
+from pydantic import BaseModel
 
 from metadata_scanner import analyze_media, Decision
-from vlm_classifier import llm_classify_video
+from vlm_classifier import VLMClassifier
 from deepfake_detector import DeepfakeDetector
 
 app = FastAPI()
-
-app.add_middleware(
-    CORSMiddleware,
-    allow_origins=["*"],
-    allow_methods=["*"],
-    allow_headers=["*"],
-)
+app.add_middleware(CORSMiddleware, allow_origins=["*"], allow_methods=["*"], allow_headers=["*"])
 
 HTML_PATH = Path(__file__).parent / "index.html"
-ONNX_PATH = "models/provenance/deepfake_detector_model.onnx"
+ONNX_PATH = "models/provenance/deepfake_detector.onnx"
 
-# OpenAI-compatible client pointing at local llama.cpp VLM
-from openai import OpenAI as _OpenAI
-_vlm_client = _OpenAI(base_url="http://localhost:8001/v1", api_key="EMPTY")
+local_ip = os.environ.get("LOCAL_IP", "localhost")
+vlm_port = int(os.environ.get("VLM_PORT", 8001))
+vlm_alias = os.environ.get("VLM_ALIAS", "gemma-4-e2b-it")
 
+_vlm_client = OpenAI(base_url=f"http://{local_ip}:{vlm_port}/v1", api_key="EMPTY")
+_detector: DeepfakeDetector | None = None
 
-# ─────────────────────────────────────────────
-# /explain — VLM explains the verdict
-# ─────────────────────────────────────────────
+TOS_BLOCKED_DOMAINS = [
+    "netflix.com", "hulu.com", "disneyplus.com", "primevideo.com", 
+    "amazon.com", "max.com", "hbo.com", "onlyfans.com", "patreon.com"
+]
 
-from fastapi import Request as _Request
-from pydantic import BaseModel as _BaseModel
+PROVENANCE_TIMEOUT = int(os.environ.get("PROVENANCE_TIMEOUT", 0))
+_last_activity_time = time.time()
 
-class ExplainRequest(_BaseModel):
+@app.middleware("http")
+async def update_activity_timer(request: Request, call_next):
+    """Middleware that resets the idle timer on EVERY interaction."""
+    global _last_activity_time
+    _last_activity_time = time.time()
+    response = await call_next(request)
+    return response
+
+@app.on_event("startup")
+def inactivity_watcher():
+    """Continuously monitors for inactivity and kills the server if abandoned."""
+    if PROVENANCE_TIMEOUT > 0:
+        def watcher():
+            while True:
+                time.sleep(10)  # Check the clock every 10 seconds
+                idle_duration = time.time() - _last_activity_time
+                
+                if idle_duration > PROVENANCE_TIMEOUT:
+                    print(f"\n[SECURITY] Provenance Server idle for over {PROVENANCE_TIMEOUT} seconds. Auto-closing to free GPU resources.\n")
+                    os.kill(os.getpid(), signal.SIGTERM)
+                    break
+                    
+        threading.Thread(target=watcher, daemon=True).start()
+
+class ExplainRequest(BaseModel):
     prompt: str
     max_tokens: int = 450
 
@@ -68,17 +80,13 @@ async def explain(body: ExplainRequest):
     response = await asyncio.get_event_loop().run_in_executor(
         None,
         lambda: _vlm_client.chat.completions.create(
-            model="qwen3-vl",
+            model=vlm_alias,
             messages=[{"role": "user", "content": body.prompt}],
             max_tokens=body.max_tokens,
             temperature=0.3,
-            extra_body={"repeat_penalty": 1.1},
         )
     )
     return {"text": response.choices[0].message.content.strip()}
-
-# Load detector once at startup — expensive to reload
-_detector: DeepfakeDetector | None = None
 
 def get_detector() -> DeepfakeDetector:
     global _detector
@@ -86,276 +94,189 @@ def get_detector() -> DeepfakeDetector:
         _detector = DeepfakeDetector(onnx_path=ONNX_PATH)
     return _detector
 
-
-# ─────────────────────────────────────────────
-# Serve HTML
-# ─────────────────────────────────────────────
-
 @app.get("/", response_class=HTMLResponse)
-async def serve_frontend():
+async def serve_frontend(request: Request):
+    client_ip = request.client.host
+    print(f"\n👀 [ALERT] Provenance Kiosk accessed securely by IP: {client_ip}\n")
+    
     return HTMLResponse(content=HTML_PATH.read_text(encoding="utf-8"))
 
+@app.post("/upload")
+async def upload_video(file: UploadFile = File(...)):
+    if not file.filename.lower().endswith(('.mp4', '.avi', '.mov', '.mkv', '.webm')):
+        raise HTTPException(status_code=400, detail="Invalid video format.")
+    tmp_dir = tempfile.mkdtemp()
+    file_path = os.path.join(tmp_dir, file.filename)
+    with open(file_path, "wb") as buffer:
+        shutil.copyfileobj(file.file, buffer)
+    return {"file_path": file_path}
 
-# ─────────────────────────────────────────────
-# SSE helpers
-# ─────────────────────────────────────────────
-
-def sse(event: str, data: dict) -> str:
-    """Format a single SSE message."""
-    return f"event: {event}\ndata: {json.dumps(data)}\n\n"
-
-
-def step_event(step: int, status: str, note: str = "") -> str:
-    return sse("step", {"step": step, "status": status, "note": note})
-
-
-def result_event(payload: dict) -> str:
-    return sse("result", payload)
-
-
-def error_event(msg: str) -> str:
-    return sse("error", {"message": msg})
-
-
-# ─────────────────────────────────────────────
-# Video download
-# ─────────────────────────────────────────────
+def sse(event: str, data: dict) -> str: return f"event: {event}\ndata: {json.dumps(data)}\n\n"
+def step_event(step: int, status: str, note: str = "") -> str: return sse("step", {"step": step, "status": status, "note": note})
+def log_event(msg: str) -> str: return sse("log", {"message": msg})
+def result_event(payload: dict) -> str: return sse("result", payload)
+def error_event(msg: str) -> str: return sse("error", {"message": msg})
 
 def download_video(url: str, out_dir: str) -> str:
-    """Download a video from any URL using yt-dlp. Returns local file path."""
     ydl_opts = {
-        "format":     "bestvideo[ext=mp4][height<=720]+bestaudio[ext=m4a]/best[ext=mp4]/best",
-        "outtmpl":    os.path.join(out_dir, "video.%(ext)s"),
-        "quiet":      True,
-        "no_warnings": True,
-        "merge_output_format": "mp4",
+        "format": "bestvideo[ext=mp4][height<=720]+bestaudio[ext=m4a]/best[ext=mp4]/best",
+        "outtmpl": os.path.join(out_dir, "video.%(ext)s"),
+        "quiet": True, "no_warnings": True, "merge_output_format": "mp4",
     }
-    with yt_dlp.YoutubeDL(ydl_opts) as ydl:
-        ydl.download([url])
-
-    # Find the downloaded file
+    with yt_dlp.YoutubeDL(ydl_opts) as ydl: ydl.download([url])
     for f in os.listdir(out_dir):
-        if f.startswith("video."):
-            return os.path.join(out_dir, f)
+        if f.startswith("video."): return os.path.join(out_dir, f)
     raise FileNotFoundError("yt-dlp finished but no output file found.")
 
-
-# ─────────────────────────────────────────────
-# Map pipeline result → frontend payload
-# ─────────────────────────────────────────────
-
-def build_result(
-    verdict: str,
-    verdict_class: str,
-    confidence: int,
-    video_type: str,
-    description: str,
-    trace: list[dict],
-    explanation: str,
-    elapsed: str,
-) -> dict:
-    return {
-        "verdict":     verdict,
-        "verdictClass": verdict_class,
-        "confidence":  confidence,
-        "videoType":   video_type,
-        "description": description,
-        "trace":       trace,
-        "explanation": explanation,
-        "elapsed":     elapsed,
-    }
-
-
-# ─────────────────────────────────────────────
-# /analyze  — SSE stream
-# ─────────────────────────────────────────────
-
 @app.get("/analyze")
-async def analyze(url: str = Query(..., description="Video URL to analyze")):
+async def analyze(url: str = Query(None), file_path: str = Query(None)):
+    if not url and not file_path:
+        return StreamingResponse(iter([error_event("Must provide URL or file.")]), media_type="text/event-stream")
 
     async def stream():
         start = time.perf_counter()
         tmp_dir = tempfile.mkdtemp()
+        target_video_path = None
 
         try:
-            # ── Step 1: Receive ───────────────────────────────────────────
-            yield step_event(1, "active")
-            await asyncio.sleep(0.3)
-            yield step_event(1, "complete")
+            yield log_event("Initializing IRIS Pipeline...")
+            
+            vlm_classifier = VLMClassifier(_vlm_client, vlm_alias)
 
-            # ── Step 2: Route ─────────────────────────────────────────────
-            yield step_event(2, "active")
-            await asyncio.sleep(0.2)
-            yield step_event(2, "complete")
+            if url:
+                if any(domain in url.lower() for domain in TOS_BLOCKED_DOMAINS):
+                    yield error_event("TOS Violation: Prohibited domain."); return
 
-            # ── Step 3: Download ─────────────────────────────────────────
-            yield step_event(3, "active")
-            try:
-                video_path = await asyncio.get_event_loop().run_in_executor(
-                    None, download_video, url, tmp_dir
-                )
-            except Exception as e:
-                yield error_event(f"Could not download video: {e}")
-                return
-            yield step_event(3, "complete", note=os.path.basename(video_path))
+                yield step_event(1, "active"); yield log_event(f"Target URL: {url}"); await asyncio.sleep(0.3); yield step_event(1, "complete")
+                yield step_event(2, "active"); await asyncio.sleep(0.2); yield step_event(2, "complete")
+                yield step_event(3, "active"); yield log_event("Downloading video via yt-dlp...")
+                
+                try: target_video_path = await asyncio.get_event_loop().run_in_executor(None, download_video, url, tmp_dir)
+                except Exception as e: yield error_event(f"Download failed: {e}"); return
+                
+                yield step_event(3, "complete", note=os.path.basename(target_video_path))
+                
+            elif file_path:
+                for i in range(1, 4): yield step_event(i, "skipped")
+                yield log_event(f"Loaded local file: {os.path.basename(file_path)}")
+                target_video_path = file_path
 
-            # ── Step 4: Metadata scan ─────────────────────────────────────
+            # --- PROVENANCE CHECK ---
             yield step_event(4, "active")
-            meta_result = await asyncio.get_event_loop().run_in_executor(
-                None, analyze_media, video_path
-            )
+            meta_result = await asyncio.get_event_loop().run_in_executor(None, analyze_media, target_video_path)
             yield step_event(4, "complete")
 
-            elapsed = lambda: f"{time.perf_counter() - start:.2f}"
-
-            # Fast-exit: definite AI
             if meta_result.isAIGenerated == Decision.YES:
                 reason = str(meta_result.reason or "AI metadata confirmed.")
-                for i in range(5, 7):
-                    yield step_event(i, "skipped")
-                yield result_event(build_result(
-                    verdict="AI CONFIRMED",
-                    verdict_class="ai",
-                    confidence=99,
-                    video_type="GEN.",
-                    description=reason,
-                    trace=[
+                yield log_event(f"METADATA HIT: {reason}. Bypassing downstream.")
+                for i in range(5, 7): yield step_event(i, "skipped")
+                yield result_event({
+                    "verdict": "AI Generated", "verdictClass": "ai", "confidence": None, "videoType": "GENERATED", 
+                    "description": reason, "elapsed": f"{time.perf_counter() - start:.2f}",
+                    "trace": [
                         {"icon": "flag", "text": f"PROVENANCE — {reason}"},
                         {"icon": "done", "text": "FAST EXIT — AI origin confirmed via metadata."},
-                        *[{"icon": "skip", "text": f"{s} — SKIPPED (fast exit)."} for s in
-                          ["VIDEO TYPE", "VIDEOMAE", "WAV2VEC", "FOURIER CNN", "FUSION LAYER"]],
-                        {"icon": "flag", "text": "CLASSIFIER — AI CONFIRMED @ 99% confidence."},
+                        {"icon": "flag", "text": "CLASSIFIER — AI CONFIRMED."}
                     ],
-                    explanation=f"Metadata analysis conclusively identified AI generation: {reason}. No further pipeline stages required.",
-                    elapsed=elapsed(),
-                ))
+                    "explanation": f"Metadata analysis identified AI generation: {reason}."
+                })
                 return
 
-            # ── Step 5: VLM classify ──────────────────────────────────────
+            # --- INTERLEAVED TEMPORAL PIPELINE ---
+            yield log_event("No metadata signatures found. Entering Temporal Interleaved Analysis...")
             yield step_event(5, "active")
-            meta_reason = meta_result.reason if isinstance(meta_result.reason, str) else None
-            vlm_verdict, vlm_reason = await asyncio.get_event_loop().run_in_executor(
-                None, llm_classify_video, video_path, meta_reason
-            )
-            yield step_event(5, "complete", note=vlm_verdict)
-
-            # Animated / Recording / Generated → skip deepfake pipeline
-            # Real / Deepfake → continue to full deepfake engine
-            SKIP_VERDICTS = {
-                "Animated":  ("ANIM.", "skipped", 85),
-                "Recording": ("REC.",  "skipped", 80),
-                "Generated": ("GEN.",  "ai",      90),
-            }
-
-            if vlm_verdict in SKIP_VERDICTS:
-                vtype, vclass, conf = SKIP_VERDICTS[vlm_verdict]
-                yield step_event(6, "skipped")
-                verdict_label = "AI CONFIRMED" if vlm_verdict == "Generated" else "SKIPPED"
-                yield result_event(build_result(
-                    verdict=verdict_label,
-                    verdict_class=vclass,
-                    confidence=conf,
-                    video_type=vtype,
-                    description=f"Video classified as {vlm_verdict} by VLM. {vlm_reason}",
-                    trace=[
-                        {"icon": "done", "text": "PROVENANCE — No conclusive AI metadata found."},
-                        {"icon": "flag" if vlm_verdict == "Generated" else "done",
-                         "text": f"VIDEO TYPE — {vtype} detected ({conf}% confidence). {vlm_reason}"},
-                        *[{"icon": "skip", "text": f"{s} — SKIPPED (not applicable)."} for s in
-                          ["VIDEOMAE", "WAV2VEC", "FOURIER CNN", "FUSION LAYER"]],
-                        {"icon": "flag" if vlm_verdict == "Generated" else "done",
-                         "text": f"CLASSIFIER — {verdict_label} @ {conf}% confidence."},
-                    ],
-                    explanation=f"The VLM classified the video as {vlm_verdict} ({vlm_reason}). The deepfake pipeline only applies to real human footage.",
-                    elapsed=elapsed(),
-                ))
-                return
-
-            # vlm_verdict is "Real" or "Deepfake" → run full deepfake engine
-            video_type_label = "DEEP." if vlm_verdict == "Deepfake" else "REA."
-
-            # ── Step 6: Deepfake engine (all modules run together) ────────
             yield step_event(6, "active")
-
-            detector = await asyncio.get_event_loop().run_in_executor(None, get_detector)
-            df_result = await asyncio.get_event_loop().run_in_executor(
-                None, detector.predict, video_path, False
+            
+            chunked_frames = await asyncio.get_event_loop().run_in_executor(
+                None, vlm_classifier.get_chunked_video_frames, target_video_path, 2.0, 4
             )
+            
+            detector = await asyncio.get_event_loop().run_in_executor(None, get_detector)
+            audio, vr, fps, tot_frames = await asyncio.get_event_loop().run_in_executor(
+                None, detector.load_media, target_video_path
+            )
+
+            meta_reason = meta_result.reason if isinstance(meta_result.reason, str) else None
+            final_trace = [{"icon": "done", "text": "PROVENANCE — No AI metadata found. Proceeding temporally."}]
+            
+            highest_fake_spike = 0.0
+            onnx_evaluated_chunks = 0
+            is_definitively_fake = False
+            worst_chunk_frames = []
+            
+            for chunk in chunked_frames:
+                c_idx, c_start, c_end = chunk['chunk_index'], chunk['start'], chunk['end']
+                yield log_event(f"▶ Scanning Window {c_idx}/{len(chunked_frames)} [{c_start:.1f}s - {c_end:.1f}s]")
+                
+                # 1. Semantic VLM Gatekeeper
+                v_verdict, v_reason = await asyncio.get_event_loop().run_in_executor(
+                    None, vlm_classifier.classify_chunk, chunk['frames'], c_idx, c_start, c_end, meta_reason
+                )
+
+                print(v_reason)
+                
+                if v_verdict in ["ANIMATED", "REAL_NO_HUMANS"]:
+                    yield log_event(f"  ↳ VLM: '{v_verdict}'. Skipping ONNX deepfake matrix.")
+                    final_trace.append({"icon": "skip", "text": f"CHUNK {c_idx} [{c_start:.1f}s-{c_end:.1f}s] → VLM: {v_verdict}. Deepfake check bypassed."})
+                    continue
+                    
+                # 2. Multimodal ONNX Execution
+                yield log_event(f"  ↳ VLM: '{v_verdict}' (Human features detected). Engaging ONNX...")
+                fake_prob = await asyncio.get_event_loop().run_in_executor(
+                    None, detector.predict_window, audio, vr, fps, tot_frames, c_start, c_end
+                )
+                
+                onnx_evaluated_chunks += 1
+                if fake_prob > highest_fake_spike: 
+                    highest_fake_spike = fake_prob
+                    worst_chunk_frames = chunk['frames']
+                if fake_prob > 0.5: 
+                    is_definitively_fake = True
+
+                    
+                status = "FAKE" if fake_prob > 0.5 else "REAL"
+                icon = "flag" if fake_prob > 0.5 else "done"
+                yield log_event(f"  ↳ ONNX: {status} (Score: {fake_prob:.4f})")
+                final_trace.append({"icon": icon, "text": f"CHUNK {c_idx} [{c_start:.1f}s-{c_end:.1f}s] → ONNX: {status} ({fake_prob:.3f})"})
+
+            yield step_event(5, "complete")
             yield step_event(6, "complete")
 
-            is_fake  = df_result["is_fake"]
-            max_conf = df_result["max_confidence"]
-            avg_conf = df_result["average_confidence"]
-            chunks   = df_result["chunks"]
+            # --- AGGREGATE FINAL VERDICT ---
+            if is_definitively_fake:
+                final_verdict, v_class, final_type = "FAKE", "fake", "DEEPFAKE"
+                desc = f"Deepfake artifacts detected during temporal analysis. Highest fake probability spike: {highest_fake_spike:.4f}."
+                conf = int(highest_fake_spike * 100)
+                flagged_frames_payload = worst_chunk_frames
+            elif onnx_evaluated_chunks == 0:
+                # VLM skipped every single chunk
+                final_type = "ANIMATED / NO HUMANS"
+                final_verdict = "SKIPPED"
+                v_class = "skipped"
+                desc = "No real human footage was detected in any window. The video was classified as animated or lacking humans."
+                conf = None
+                flagged_frames_payload = []
+            else:
+                final_verdict, v_class, final_type = "GENUINE", "genuine", "REAL"
+                desc = f"No deepfake artifacts detected across {onnx_evaluated_chunks} human-verified window(s)."
+                conf = int((1.0 - highest_fake_spike) * 100)
+                flagged_frames_payload = []
 
-            confidence = int(max_conf * 100)
-            verdict    = "FAKE" if is_fake else "GENUINE"
-            vclass     = "fake" if is_fake else "genuine"
-            icon       = "flag" if is_fake else "done"
+            final_trace.append({"icon": "flag" if final_verdict in ["FAKE", "AI CONFIRMED"] else "done", "text": f"CLASSIFIER — Verdict: {final_verdict}."})
 
-            # Build per-chunk trace
-            chunk_trace = []
-            for c in chunks[:6]:   # cap trace at 6 lines
-                label = "FAKE" if c["fake_prob"] > 0.5 else "REAL"
-                chunk_trace.append({
-                    "icon": "flag" if c["fake_prob"] > 0.5 else "done",
-                    "text": f"CHUNK [{c['start']:.1f}s–{c['end']:.1f}s] → {label} ({c['fake_prob']:.3f})",
-                })
-
-            trace = [
-                {"icon": "done", "text": "PROVENANCE — No AI metadata found. Forwarding to pipeline."},
-                {"icon": "warn" if vlm_verdict == "Deepfake" else "done",
-                 "text": f"VIDEO TYPE — {video_type_label} detected. {vlm_reason}"},
-                *chunk_trace,
-                {"icon": icon,
-                 "text": f"VIDEOMAE — Spatial/temporal analysis: max fake spike {max_conf:.3f}."},
-                {"icon": icon,
-                 "text": f"WAV2VEC — Audio analysis: average confidence {avg_conf:.3f}."},
-                {"icon": icon,
-                 "text": f"FOURIER CNN — Frequency domain complete."},
-                {"icon": icon,
-                 "text": f"FUSION LAYER — {len(chunks)} chunk(s) analysed."},
-                {"icon": icon,
-                 "text": f"CLASSIFIER — Verdict: {verdict} @ {confidence}% confidence."},
-            ]
-
-            desc = (
-                f"{'Deepfake artifacts detected' if is_fake else 'No conclusive deepfake artifacts detected'} "
-                f"across {len(chunks)} analysis window(s). "
-                f"Highest fake spike: {max_conf:.3f}. Average confidence: {avg_conf:.3f}."
-            )
-            explanation = (
-                f"The multimodal deepfake detector analysed {len(chunks)} sliding window(s) of 2 seconds each. "
-                f"The highest recorded fake probability was {max_conf:.4f} and the average was {avg_conf:.4f}. "
-                f"A chunk is flagged as fake when its probability exceeds 0.5. "
-                f"The final verdict uses the highest single-chunk score as the deciding signal. "
-                f"Verdict: {verdict} at {confidence}% confidence."
-            )
-
-            yield result_event(build_result(
-                verdict=verdict,
-                verdict_class=vclass,
-                confidence=confidence,
-                video_type=video_type_label,
-                description=desc,
-                trace=trace,
-                explanation=explanation,
-                elapsed=elapsed(),
-            ))
+            yield result_event({
+                "verdict": final_verdict, "verdictClass": v_class, "confidence": conf, "videoType": final_type,
+                "description": desc, "trace": final_trace, "elapsed": f"{time.perf_counter() - start:.2f}",
+                "explanation": f"The system processed the video in strict 2-second chronological windows. {desc}",
+                "flagged_frames": flagged_frames_payload
+            })
 
         except Exception as e:
             traceback.print_exc()
             yield error_event(f"Pipeline error: {e}")
         finally:
-            # Clean up temp files
-            import shutil
             shutil.rmtree(tmp_dir, ignore_errors=True)
+            if file_path and os.path.exists(os.path.dirname(file_path)):
+                shutil.rmtree(os.path.dirname(file_path), ignore_errors=True)
 
-    return StreamingResponse(
-        stream(),
-        media_type="text/event-stream",
-        headers={
-            "Cache-Control": "no-cache",
-            "X-Accel-Buffering": "no",
-        },
-    )
+    return StreamingResponse(stream(), media_type="text/event-stream", headers={"Cache-Control": "no-cache", "X-Accel-Buffering": "no"})

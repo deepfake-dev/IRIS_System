@@ -11,15 +11,8 @@
     --surface: #ffffff;
     --surface2: #f5f5f5;
     --border: #000000;
-    --accent: #000000;
-    --accent2: #000000;
     --text: #000000;
     --muted: #555555;
-    --genuine: #000000;
-    --fake: #000000;
-    --anim: #000000;
-    --gen: #000000;
-    --deep: #000000;
   }
   * { margin:0; padding:0; box-sizing:border-box; }
 
@@ -31,8 +24,10 @@
     overflow-x: hidden;
   }
 
-  body::before { display:none; }
-  body::after  { display:none; }
+  .frames-box { display:none; margin-top:16px; border-top: 2px dashed #e0e0e0; padding-top: 16px; }
+  .frames-label { font-family:'Hahmlet',serif; font-size:10px; letter-spacing:4px; color:#d32f2f; text-transform:uppercase; margin-bottom:12px; font-weight: 700; }
+  .frames-gallery { display:flex; gap:10px; overflow-x:auto; padding-bottom:8px; }
+  .frames-gallery img { height: 75px; width: auto; border: 2px solid #000; object-fit: cover; }
 
   /* NAV */
   nav {
@@ -45,9 +40,6 @@
   .logo { display:flex; align-items:center; gap:12px; }
   .logo-text { font-family:'Hahmlet',serif; font-size:28px; letter-spacing:6px; color:#000; font-weight:700; }
   .logo-sub { font-family:'Hahmlet',serif; font-size:9px; color:#000; letter-spacing:3px; margin-top:-4px; font-weight:400; }
-  .nav-status { display:flex; align-items:center; gap:8px; font-family:'Hahmlet',serif; font-size:11px; color:#000; font-weight:600; }
-  .status-dot { width:7px; height:7px; border-radius:50%; background:#000; animation:pulse 2s ease-in-out infinite; }
-  @keyframes pulse { 0%,100%{opacity:1;} 50%{opacity:.3;} }
 
   /* HERO */
   .hero {
@@ -55,11 +47,6 @@
     display:flex; flex-direction:column; align-items:center; justify-content:center;
     padding:120px 48px 80px; text-align:center;
     border-bottom: 2px solid #000;
-  }
-  .hero-eyebrow {
-    font-family:'Hahmlet',serif; font-size:11px; letter-spacing:6px;
-    color:#000; text-transform:uppercase; margin-bottom:24px;
-    opacity:0; animation:fadeUp .6s .2s forwards; font-weight:400;
   }
   .hero-title {
     font-family:'Hahmlet',serif;
@@ -89,6 +76,15 @@
     border-right:2px solid #191970; white-space:nowrap; background:#f0f0f8;
     letter-spacing:1px;
   }
+  
+  /* NEW: Upload Button */
+  .upload-btn {
+    background: #f0f0f8; border: none; border-right: 2px solid #191970;
+    padding: 0 16px; cursor: pointer; transition: background .15s;
+    display: flex; align-items: center; justify-content: center;
+  }
+  .upload-btn:hover { background: #e0e0f0; }
+
   #videoUrl {
     flex:1; background:transparent; border:none; outline:none;
     padding:18px 20px; font-family:'Hahmlet',serif;
@@ -105,13 +101,9 @@
   .analyze-btn:hover { background:#2a2a9a; }
   .analyze-btn:active { transform:scale(.98); }
   .analyze-btn:disabled { background:#ccc; color:#888; cursor:not-allowed; }
-  .input-hint {
-    font-family:'Hahmlet',serif; font-size:10px; color:#888;
-    margin-top:12px; letter-spacing:2px; text-transform:uppercase;
-  }
 
   /* LOADING */
-  #loadingPanel { display:none; position:relative; z-index:1; max-width:900px; margin:0 auto 80px; padding:0 48px; }
+  #loadingPanel { display:none; position:relative; z-index:1; max-width:900px; margin:0 auto 40px; padding:0 48px; }
   .loading-container { border:2px solid #000; background:#fff; padding:40px; }
   .loading-header { font-family:'Hahmlet',serif; font-size:10px; letter-spacing:4px; color:#000; margin-bottom:24px; text-transform:uppercase; font-weight:700; }
   .loading-steps { display:flex; flex-direction:column; gap:12px; }
@@ -132,17 +124,29 @@
   .step-text { font-family:'Hahmlet',serif; font-size:12px; letter-spacing:2px; color:#666; text-transform:uppercase; }
   .loading-step.active .step-text { color:#000; font-weight:600; }
 
+  /* TERMINAL LOGS */
+  #logPanel { display:none; position:relative; z-index:1; max-width:900px; margin: 0 auto 80px; padding: 0 48px; }
+  .log-header { font-family:'Hahmlet',serif; font-size:10px; letter-spacing:4px; color:#000; margin-bottom:12px; text-transform:uppercase; font-weight:700; }
+  #terminalLogs {
+    background: #000; color: #0f0; border: 2px solid #000;
+    font-family: monospace; font-size: 13px; line-height: 1.6;
+    padding: 20px; height: 300px; overflow-y: auto;
+    box-shadow: inset 0 0 10px rgba(0,0,0,0.8);
+  }
+  .log-entry { margin-bottom: 4px; }
+  .log-time { color: #888; margin-right: 10px; }
+
   /* ERROR */
   #errorBanner { display:none; position:relative; z-index:1; max-width:900px; margin:0 auto 40px; padding:0 48px; }
   .error-box {
     border:2px solid #000; background:#f5f5f5;
-    padding:20px 24px; border-left:5px solid #000;
+    padding:20px 24px; border-left:5px solid #d32f2f;
     font-family:'Hahmlet',serif; font-size:12px; color:#000;
     line-height:1.6; letter-spacing:1px;
   }
 
   /* RESULT */
-  #resultPanel { display:none; position:relative; z-index:1; max-width:900px; margin:0 auto 80px; padding:0 48px; }
+  #resultPanel { display:none; position:relative; z-index:1; max-width:900px; margin:0 auto 40px; padding:0 48px; }
   .result-container { border:2px solid #000; background:#fff; overflow:hidden; }
   .result-header {
     display:flex; align-items:center; justify-content:space-between;
@@ -160,28 +164,16 @@
     font-weight:700; color:#000;
     word-break:break-word; overflow-wrap:break-word;
   }
-  .verdict-badge.genuine { color:#000; }
-  .verdict-badge.fake { color:#000; }
-  .verdict-badge.ai { color:#000; }
-  .verdict-badge.skipped { color:#000; }
   .video-type-badge {
-    display:inline-flex; align-items:center;
+    display:inline-flex; align-items:center; width: fit-content;
     font-family:'Hahmlet',serif; font-size:11px; font-weight:700;
     padding:5px 12px; border:2px solid #000; letter-spacing:2px;
     text-transform:uppercase; color:#000; background:#f5f5f5;
   }
-  .type-REA { background:#f5f5f5; }
-  .type-GEN { background:#ebebeb; }
-  .type-ANIM { background:#f0f0f0; }
-  .type-REC { background:#f8f8f8; }
   .confidence-bar-wrap { display:flex; flex-direction:column; gap:6px; }
   .confidence-label { font-family:'Hahmlet',serif; font-size:10px; color:#888; display:flex; justify-content:space-between; letter-spacing:2px; text-transform:uppercase; }
   .confidence-track { height:3px; background:#e0e0e0; overflow:hidden; }
   .confidence-fill { height:100%; width:0%; background:#000; transition:width 1.2s cubic-bezier(.4,0,.2,1); }
-  .confidence-fill.genuine { background:#000; }
-  .confidence-fill.fake { background:#000; }
-  .confidence-fill.ai { background:#000; }
-  .confidence-fill.skipped { background:#000; }
   #verdictDesc { font-family:'Hahmlet',serif; font-size:13px; color:#555; line-height:1.7; }
   .explain-btn {
     background:#fff; border:2px solid #000; color:#000;
@@ -193,8 +185,7 @@
   .explain-btn:hover { background:#000; color:#fff; }
   #explanationBox {
     display:none; margin-top:10px; padding:16px;
-    background:#f5f5f5; border:2px solid #000;
-    border-left:5px solid #000;
+    background:#f5f5f5; border:2px solid #000; border-left:5px solid #000;
     font-family:'Hahmlet',serif; font-size:13px; color:#000; line-height:1.75;
   }
   .pipeline-trace { display:flex; flex-direction:column; gap:8px; }
@@ -213,73 +204,35 @@
   .trace-icon.flag { background:#000; color:#fff; }
   .trace-icon.warn { background:#ccc; color:#000; }
 
-  /* HOW TO USE */
-  .how-section { position:relative; z-index:1; padding:80px 48px 100px; max-width:1200px; margin:0 auto; }
-  .section-label { font-family:'Hahmlet',serif; font-size:10px; letter-spacing:5px; color:#888; margin-bottom:12px; text-transform:uppercase; }
-  .section-title { font-family:'Hahmlet',serif; font-size:clamp(36px,5vw,64px); letter-spacing:4px; margin-bottom:48px; line-height:1; color:#000; font-weight:700; }
-  .steps-grid { display:grid; grid-template-columns:repeat(3,1fr); gap:2px; }
-  .step-card {
-    padding:32px; background:#fff; border:2px solid #000;
-    position:relative; overflow:hidden; transition:background .2s;
-  }
-  .step-card:hover { background:#f5f5f5; }
-  .step-card-num { font-family:'Hahmlet',serif; font-size:80px; color:#e0e0e0; line-height:.9; margin-bottom:20px; display:block; font-weight:700; }
-  .step-card-title { font-family:'Hahmlet',serif; font-size:16px; font-weight:700; margin-bottom:10px; color:#000; }
-  .step-card-desc { font-family:'Hahmlet',serif; font-size:13px; color:#555; line-height:1.7; }
-  .step-card-accent { position:absolute; bottom:0; left:0; width:100%; height:3px; background:#000; transform:scaleX(0); transform-origin:left; transition:transform .3s; }
-  .step-card:hover .step-card-accent { transform:scaleX(1); }
-
-  /* VERDICT KEY */
-  .verdict-key { position:relative; z-index:1; padding:0 48px 80px; max-width:1200px; margin:0 auto; }
-  .verdict-grid { display:grid; grid-template-columns:repeat(2,1fr); gap:2px; }
-  .verdict-card { padding:32px; background:#fff; border:2px solid #000; display:flex; flex-direction:column; gap:14px; }
-  .verdict-icon { font-family:'Hahmlet',serif; font-size:34px; letter-spacing:2px; line-height:1.1; font-weight:700; color:#000; word-break:break-word; }
-  .verdict-icon.genuine { color:#000; }
-  .verdict-icon.fake { color:#000; }
-  .verdict-icon.ai { color:#000; }
-  .verdict-icon.ambig { color:#000; }
-  .verdict-info { display:flex; flex-direction:column; gap:6px; border-top:1px solid #e0e0e0; padding-top:14px; }
-  .verdict-info-title { font-family:'Hahmlet',serif; font-weight:700; color:#000; font-size:14px; text-transform:uppercase; letter-spacing:1px; }
-  .verdict-info-desc { font-family:'Hahmlet',serif; font-size:13px; color:#555; line-height:1.65; }
-
   footer {
     position:relative; z-index:1; border-top:2px solid #000;
     padding:28px 48px; display:flex; align-items:center; justify-content:space-between;
     font-family:'Hahmlet',serif; font-size:10px; color:#888;
     letter-spacing:3px; background:#fff; text-transform:uppercase;
   }
+  .qr-container { display:flex; align-items:center; gap: 15px; }
 
   .back-btn {
     font-family:'Hahmlet',serif; font-size:11px; font-weight:700;
     letter-spacing:3px; text-transform:uppercase; text-decoration:none;
     color:#fff; background:#000;
-    padding:9px 20px;
-    border:2px solid #000;
+    padding:9px 20px; border:2px solid #000;
     transition:background .15s, color .15s;
     white-space:nowrap;
   }
   .back-btn:hover { background:#fff; color:#000; }
 
-  .status-dot { display:none; }
-    display:inline-block; width:12px; height:12px;
-    border:2px solid #ddd; border-top-color:#000;
-    border-radius:50%; animation:spin .7s linear infinite; flex-shrink:0;
-  }
-  @keyframes spin { to { transform:rotate(360deg); } }
-
   @media(max-width:900px){
     nav{padding:16px 24px;}
-    .hero,.how-section,.verdict-key{padding-left:24px;padding-right:24px;}
-    #resultPanel,#loadingPanel,#errorBanner{padding-left:24px;padding-right:24px;}
-    .steps-grid{grid-template-columns:1fr;}
-    .verdict-grid{grid-template-columns:1fr;}
+    .hero{padding-left:24px;padding-right:24px;}
+    #resultPanel,#loadingPanel,#errorBanner,#logPanel{padding-left:24px;padding-right:24px;}
     .result-body{grid-template-columns:1fr;}
+    .qr-container span { display: none; }
   }
   @media(max-width:600px){
     .hero-title{letter-spacing:6px;}
     .input-prefix{display:none;}
     .analyze-btn{padding:0 20px;font-size:14px;}
-    footer{flex-direction:column;gap:8px;text-align:center;}
   }
 </style>
 </head>
@@ -299,18 +252,25 @@
       <div class="logo-sub">Deepfake Detection</div>
     </div>
   </div>
-  <a href="#" class="back-btn">← BACK TO IRIS</a>
+  <button class="back-btn" onclick="window.close()" style="cursor: pointer;">← BACK TO IRIS</button>
 </nav>
 
 <section class="hero">
   <div class="hero-title">IRIS</div>
-  <p class="hero-tagline">Paste any video URL. IRIS runs a multi-stage AI pipeline to detect deepfakes, AI-generated content, and provenance anomalies in seconds.</p>
+  <p class="hero-tagline">Paste any video URL or upload a local file. IRIS runs a multi-stage AI pipeline to detect deepfakes, AI-generated content, and provenance anomalies in seconds.</p>
   <div class="input-panel">
     <div class="input-wrapper">
-      <span class="input-prefix">VIDEO_URL://</span>
-      <input type="text" id="videoUrl" placeholder="Paste https://x.com/user/status/... or any video link" autocomplete="off" spellcheck="false">
+      <span class="input-prefix">VIDEO://</span>
+      
+      <input type="file" id="fileUpload" accept="video/*" style="display: none;">
+      <button class="upload-btn" onclick="document.getElementById('fileUpload').click()" title="Upload Local File">
+        <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="#191970" stroke-width="2.5"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4M17 8l-5-5-5 5M12 3v12"/></svg>
+      </button>
+
+      <input type="text" id="videoUrl" placeholder="Paste link or click folder to upload..." autocomplete="off" spellcheck="false">
       <button class="analyze-btn" id="analyzeBtn" onclick="startAnalysis()">DETECT</button>
     </div>
+  </div>
 </section>
 
 <div id="loadingPanel">
@@ -321,8 +281,8 @@
       <div class="loading-step" id="ls2"><div class="step-indicator">02</div><div class="step-text">SERVER ORCHESTRATOR ROUTING REQUEST</div></div>
       <div class="loading-step" id="ls3"><div class="step-indicator">03</div><div class="step-text">DOWNLOADING VIDEO (BALANCED QUALITY)</div></div>
       <div class="loading-step" id="ls4"><div class="step-indicator">04</div><div class="step-text">READING C2PA / XMP / EXIF METADATA</div></div>
-      <div class="loading-step" id="ls5"><div class="step-indicator">05</div><div class="step-text">VIDEO TYPE DETECTION — QWEN3-VL CLASSIFIER</div></div>
-      <div class="loading-step" id="ls6"><div class="step-indicator">06</div><div class="step-text">DEEPFAKE ENGINE — VIDEOMAE + WAV2VEC + FOURIER CNN + FUSION</div></div>
+      <div class="loading-step" id="ls5"><div class="step-indicator">05</div><div class="step-text">VIDEO TYPE DETECTION — VLM CLASSIFIER</div></div>
+      <div class="loading-step" id="ls6"><div class="step-indicator">06</div><div class="step-text">DEEPFAKE ENGINE</div></div>
     </div>
   </div>
 </div>
@@ -342,11 +302,15 @@
         <div class="verdict-label">// FINAL VERDICT</div>
         <div class="verdict-badge" id="verdictBadge">—</div>
         <div id="videoTypeBadge"></div>
-        <div class="confidence-bar-wrap">
+        <div class="confidence-bar-wrap" id="confWrap">
           <div class="confidence-label"><span>CONFIDENCE</span><span id="confScore">—</span></div>
           <div class="confidence-track"><div class="confidence-fill" id="confFill"></div></div>
         </div>
         <div id="verdictDesc" style="font-size:13px;color:var(--muted);line-height:1.65;"></div>
+        <div class="frames-box" id="flaggedFramesBox">
+          <div class="frames-label">// FORENSIC EVIDENCE (FLAGGED FRAMES)</div>
+          <div class="frames-gallery" id="framesGallery"></div>
+        </div>
         <button class="explain-btn" id="explainBtn" onclick="toggleExplain()">
           <span id="explainIcon">⊕</span><span id="explainLabel">EXPLAIN FURTHER</span>
         </button>
@@ -359,70 +323,51 @@
   </div>
 </div>
 
-<section class="how-section">
-  <div class="section-label">// User Guide</div>
-  <div class="section-title">HOW TO USE IRIS</div>
-  <div class="steps-grid">
-    <div class="step-card"><span class="step-card-num">01</span><div class="step-card-title">Find a Video to Analyze</div><div class="step-card-desc">Navigate to any video on X (Twitter), YouTube, Instagram, TikTok, or any platform. Copy the full URL from your browser's address bar or use the share/copy link option.</div><div class="step-card-accent"></div></div>
-    <div class="step-card"><span class="step-card-num">02</span><div class="step-card-title">Paste the URL into IRIS</div><div class="step-card-desc">Click the input field at the top of the page and paste your video URL. Click <strong>DETECT</strong> or press Enter to begin the multi-stage pipeline.</div><div class="step-card-accent"></div></div>
-    <div class="step-card"><span class="step-card-num">03</span><div class="step-card-title">Watch the Pipeline Execute</div><div class="step-card-desc">IRIS shows a real-time progress trace — metadata check, video type detection, deepfake analysis. If a fast-exit is triggered, later stages are automatically skipped.</div><div class="step-card-accent"></div></div>
-    <div class="step-card"><span class="step-card-num">04</span><div class="step-card-title">Read the Verdict</div><div class="step-card-desc">The result panel shows the final verdict — <strong>GENUINE</strong>, <strong>FAKE</strong>, or <strong>AI CONFIRMED</strong> — with a confidence score and full pipeline trace.</div><div class="step-card-accent"></div></div>
-    <div class="step-card"><span class="step-card-num">05</span><div class="step-card-title">Request an Explanation</div><div class="step-card-desc">Click <strong>EXPLAIN FURTHER</strong> to get a plain-language breakdown of why the verdict was reached. This fires only on demand to conserve processing.</div><div class="step-card-accent"></div></div>
-    <div class="step-card"><span class="step-card-num">06</span><div class="step-card-title">Analyze Another Video</div><div class="step-card-desc">Clear the input, paste a new URL, and run again. Each analysis is fully independent. Use IRIS repeatedly to fact-check videos before sharing or reporting.</div><div class="step-card-accent"></div></div>
-  </div>
-</section>
-
-<section class="verdict-key">
-  <div class="section-label">// Verdict Reference</div>
-  <div class="section-title">WHAT THE VERDICTS MEAN</div>
-  <div class="verdict-grid">
-    <div class="verdict-card">
-      <div class="verdict-icon genuine">GENUINE</div>
-      <div class="verdict-info">
-        <div class="verdict-info-title">This video is real</div>
-        <div class="verdict-info-desc">No signs of manipulation were found. The faces, voices, and movements all appear natural and unaltered.</div>
-      </div>
-    </div>
-    <div class="verdict-card">
-      <div class="verdict-icon fake">FAKE</div>
-      <div class="verdict-info">
-        <div class="verdict-info-title">This video has been manipulated</div>
-        <div class="verdict-info-desc">A person's face or voice has been digitally swapped or altered. Do not share or trust this video as genuine.</div>
-      </div>
-    </div>
-    <div class="verdict-card">
-      <div class="verdict-icon ai">AI CONFIRMED</div>
-      <div class="verdict-info">
-        <div class="verdict-info-title">This video was made by AI</div>
-        <div class="verdict-info-desc">The entire video was generated by an AI tool like Sora or Veo3. No real person or footage was used.</div>
-      </div>
-    </div>
-    <div class="verdict-card">
-      <div class="verdict-icon ambig">SKIPPED</div>
-      <div class="verdict-info">
-        <div class="verdict-info-title">No deepfake check needed</div>
-        <div class="verdict-info-desc">The video is a cartoon, screen recording, or has no real human face — so a deepfake check doesn't apply here.</div>
-      </div>
-    </div>
-  </div>
-</section>
+<div id="logPanel">
+  <div class="log-header">// LIVE CLASSIFICATION LOGS</div>
+  <div id="terminalLogs"></div>
+</div>
 
 <footer>
   <span>IRIS // Deepfake Detection</span>
-
+  <div class="qr-container">
+    <span>SCAN TO ACCESS ON MOBILE:</span>
+    <img id="qrCode" src="" alt="QR Code" width="60" height="60" style="border: 2px solid #000;">
+  </div>
 </footer>
 
 <script>
-
 let explainOpen = false;
 let currentExplanation = '';
 let analysisStartTime = 0;
+let selectedFile = null;
+
+// ── On Load ──
+// ── On Load ──
+document.addEventListener("DOMContentLoaded", async () => {
+    try {
+        // Retrieve the actual system LAN IP from the backend
+        const response = await fetch('/system_ip');
+        const data = await response.json();
+        
+        // Construct the universally accessible network URL
+        const port = window.location.port ? ':' + window.location.port : '';
+        const protocol = window.location.protocol;
+        const networkUrl = `${protocol}//${data.ip}${port}/`;
+        
+        // Generate the QR Code for mobile access
+        $('qrCode').src = `https://api.qrserver.com/v1/create-qr-code/?size=150x150&data=${encodeURIComponent(networkUrl)}`;
+    } catch (error) {
+        // Fallback to the browser URL if the API fails
+        const cleanUrl = window.location.href.split('?')[0];
+        $('qrCode').src = `https://api.qrserver.com/v1/create-qr-code/?size=150x150&data=${encodeURIComponent(cleanUrl)}`;
+    }
+});
 
 // ── Helpers ──
 const $ = id => document.getElementById(id);
 const show = id => $(id).style.display = 'block';
 const hide = id => $(id).style.display = 'none';
-const delay = ms => new Promise(r => setTimeout(r, ms));
 
 function setStep(n, state) {
   const el = $('ls' + n);
@@ -433,8 +378,25 @@ function setStep(n, state) {
   else if (state === 'skipped') ind.textContent = '—';
   else ind.textContent = String(n).padStart(2,'0');
 }
-function resetSteps() { for (let i=1;i<=6;i++) setStep(i,''); }
-function resetBtn() { $('analyzeBtn').disabled=false; $('analyzeBtn').textContent='DETECT'; }
+
+function resetSteps() { 
+    for (let i=1;i<=6;i++) setStep(i,''); 
+}
+
+function resetBtn() { 
+    $('analyzeBtn').disabled=false; 
+    $('analyzeBtn').textContent='DETECT'; 
+}
+
+function writeLog(msg) {
+    const term = $('terminalLogs');
+    const now = new Date().toISOString().substring(11,19);
+    const div = document.createElement('div');
+    div.className = 'log-entry';
+    div.innerHTML = `<span class="log-time">[${now}]</span><span>${msg}</span>`;
+    term.appendChild(div);
+    term.scrollTop = term.scrollHeight;
+}
 
 // ── Local VLM via /explain ──
 async function callClaude(prompt, maxTokens=600) {
@@ -445,7 +407,6 @@ async function callClaude(prompt, maxTokens=600) {
   });
   if (!res.ok) throw new Error(`VLM error ${res.status}`);
   const data = await res.json();
-  // Return same shape callClaude callers expect
   return { content: [{ type: 'text', text: data.text }] };
 }
 
@@ -453,13 +414,28 @@ function getTextFromResponse(data) {
   return data.content.filter(b=>b.type==='text').map(b=>b.text).join('').trim();
 }
 
+// ── File Selection Handling ──
+$('fileUpload').addEventListener('change', (e) => {
+    if (e.target.files.length > 0) {
+        selectedFile = e.target.files[0];
+        $('videoUrl').value = `LOCAL_FILE:// ${selectedFile.name}`;
+    }
+});
+
+// Clear selected file if user edits the text box
+$('videoUrl').addEventListener('input', () => {
+    if (selectedFile && !$('videoUrl').value.includes(selectedFile.name)) {
+        selectedFile = null;
+        $('fileUpload').value = ''; 
+    }
+});
+
 // ── Main orchestrator ──
 let currentEventSource = null;
 
-function startAnalysis() {
-  const url = $('videoUrl').value.trim();
-  if (!url) { $('videoUrl').focus(); return; }
-  if (!url.startsWith('http')) { showError('Please enter a valid URL starting with http'); return; }
+async function startAnalysis() {
+  const urlInput = $('videoUrl').value.trim();
+  if (!urlInput) { $('videoUrl').focus(); return; }
 
   // 1. Reset UI
   hide('resultPanel');
@@ -468,44 +444,79 @@ function startAnalysis() {
   $('explanationBox').style.display = 'none';
   $('analyzeBtn').disabled = true;
   $('analyzeBtn').textContent = 'DETECTING...';
+  
+  $('terminalLogs').innerHTML = '';
+  show('loadingPanel');
+  show('logPanel');
+  resetSteps();
+  
+  $('loadingPanel').scrollIntoView({behavior:'smooth', block:'center'});
   analysisStartTime = Date.now();
 
-  show('loadingPanel');
-  resetSteps();
-  $('loadingPanel').scrollIntoView({behavior:'smooth', block:'center'});
-
-  // 2. Close any existing connection
   if (currentEventSource) {
       currentEventSource.close();
   }
 
-  // 3. Connect to the REAL backend endpoint
-  currentEventSource = new EventSource(`/analyze?url=${encodeURIComponent(url)}`);
+  // 2. Handle File vs URL
+  let streamEndpoint = "";
 
-  // Listen for pipeline steps updating
+  if (selectedFile) {
+      writeLog(`Uploading local file: ${selectedFile.name}...`);
+      const formData = new FormData();
+      formData.append("file", selectedFile);
+      
+      try {
+          const res = await fetch("/upload", { method: "POST", body: formData });
+          if (!res.ok) throw new Error("Upload failed");
+          const data = await res.json();
+          streamEndpoint = `/analyze?file_path=${encodeURIComponent(data.file_path)}`;
+      } catch (err) {
+          showError("Failed to upload local video file.");
+          resetBtn();
+          return;
+      }
+  } else {
+      if (!urlInput.startsWith('http')) { 
+          showError('Please enter a valid URL starting with http'); 
+          resetBtn();
+          return; 
+      }
+      
+      const blockedSites = ["netflix.com", "hulu.com", "disneyplus.com", "primevideo.com", "max.com", "onlyfans.com"];
+      if (blockedSites.some(d => urlInput.toLowerCase().includes(d))) {
+          showError("TOS Violation: Analyzing content from this premium/DRM domain is prohibited.");
+          resetBtn();
+          return;
+      }
+      streamEndpoint = `/analyze?url=${encodeURIComponent(urlInput)}`;
+  }
+
+  // 3. Connect to Event Stream
+  currentEventSource = new EventSource(streamEndpoint);
+
   currentEventSource.addEventListener("step", (e) => {
       const data = JSON.parse(e.data);
       setStep(data.step, data.status);
-      
-      // Optional: You could update the UI text if data.note exists
-      if(data.note) {
-          console.log(`Step ${data.step} note: ${data.note}`);
-      }
   });
 
-  // Listen for the final verdict
+  currentEventSource.addEventListener("log", (e) => {
+      const data = JSON.parse(e.data);
+      writeLog(data.message);
+  });
+
   currentEventSource.addEventListener("result", (e) => {
       const data = JSON.parse(e.data);
       hide('loadingPanel');
-      displayResult(data, url);
+      displayResult(data, urlInput);
+      writeLog("Pipeline execution finished successfully.");
       resetBtn();
       currentEventSource.close();
   });
 
-  // Listen for backend crashes/errors
   currentEventSource.addEventListener("error", (e) => {
       const data = JSON.parse(e.data);
       hide('loadingPanel');
+      writeLog(`CRITICAL ERROR: ${data.message}`);
       showError(data.message || "Connection to analysis server failed.");
       resetBtn();
       currentEventSource.close();
@@ -513,8 +524,8 @@ function startAnalysis() {
 }
 
 // ── Display result ──
-function displayResult(r, url) {
-  const short = url.length>58 ? url.substring(0,58)+'…' : url;
+function displayResult(r, urlInput) {
+  const short = urlInput.length > 58 ? urlInput.substring(0,58) + '…' : urlInput;
   $('resultUrl').textContent = '// ' + short;
   $('resultTime').textContent = r.elapsed + 's';
 
@@ -524,20 +535,39 @@ function displayResult(r, url) {
 
   const tb = $('videoTypeBadge');
   if (r.videoType) {
-    const cls = 'type-' + r.videoType.replace('.','');
-    tb.innerHTML = `<span class="video-type-badge ${cls}">TYPE: ${r.videoType}</span>`;
-  } else tb.innerHTML='';
+    tb.innerHTML = `<span class="video-type-badge">TYPE: ${r.videoType}</span>`;
+  } else {
+    tb.innerHTML='';
+  }
 
-  $('confScore').textContent = r.confidence + '%';
-  const fill = $('confFill');
-  fill.className = 'confidence-fill ' + r.verdictClass;
-  setTimeout(()=>{ fill.style.width = r.confidence+'%'; }, 80);
+  if (r.confidence !== null && r.confidence !== undefined) {
+      $('confScore').textContent = r.confidence + '%';
+      const fill = $('confFill');
+      fill.className = 'confidence-fill ' + r.verdictClass;
+      setTimeout(()=>{ fill.style.width = r.confidence+'%'; }, 80);
+      show('confWrap');
+  } else {
+      hide('confWrap');
+  }
 
   $('verdictDesc').textContent = r.description;
 
-  // Pipeline trace
+  if (r.flagged_frames && r.flagged_frames.length > 0) {
+      const fg = $('framesGallery');
+      fg.innerHTML = ''; // Clear previous images
+      r.flagged_frames.forEach(b64 => {
+          const img = document.createElement('img');
+          img.src = "data:image/jpeg;base64," + b64;
+          img.alt = "Forensic Frame";
+          fg.appendChild(img);
+      });
+      show('flaggedFramesBox');
+  } else {
+      hide('flaggedFramesBox');
+  }
+
   const trace = $('pipelineTrace');
-  trace.innerHTML = '<div style="font-family:\'Space Mono\',monospace;font-size:10px;color:var(--muted);letter-spacing:2px;margin-bottom:8px;">// PIPELINE TRACE</div>';
+  trace.innerHTML = '<div style="font-family:\'Hahmlet\',serif;font-size:10px;color:#888;letter-spacing:3px;text-transform:uppercase;margin-bottom:8px;">// PIPELINE TRACE</div>';
   r.trace.forEach(item => {
     const icons = {done:'✓', skip:'—', flag:'!', warn:'⚠'};
     const d = document.createElement('div');
@@ -569,7 +599,7 @@ async function toggleExplain() {
     return;
   }
   explainOpen = true;
-  $('explainIcon').innerHTML = '<span class="spin"></span>';
+  $('explainIcon').innerHTML = '...';
   $('explainLabel').textContent = 'GENERATING...';
   $('explainBtn').style.pointerEvents = 'none';
   box.style.display = 'block';
@@ -581,15 +611,14 @@ async function toggleExplain() {
 
   const prompt = `You are IRIS, an AI video authenticity system. A user just received this analysis result.
 
-Video URL: ${url}
+Video Input: ${url}
 Verdict: ${verdict}
 Summary: ${desc}
 Technical analysis: ${currentExplanation}
 
 1. What the verdict means in simple terms
 2. What specific signals or evidence led to this conclusion
-3. How confident they should be in this result
-4. What they should do with this information (share/don't share, report, etc.)
+3. What they should do with this information (share/don't share, report, etc.)
 
 Write naturally — no bullet points, no headers, no markdown. Just clear paragraphs.`;
 
@@ -605,14 +634,12 @@ Write naturally — no bullet points, no headers, no markdown. Just clear paragr
   $('explainBtn').style.pointerEvents = 'auto';
 }
 
-// ── Error display ──
 function showError(msg) {
   $('errorText').textContent = '// ERROR: ' + msg;
   show('errorBanner');
   $('errorBanner').scrollIntoView({behavior:'smooth', block:'center'});
 }
 
-// Enter key
 $('videoUrl').addEventListener('keydown', e => { if(e.key==='Enter') startAnalysis(); });
 </script>
 </body>

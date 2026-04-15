@@ -1,478 +1,304 @@
-import asyncio
-import json
-import numpy as np
-import warnings
-import logging
+# ==============================================================================
+# Copyright (c) 2026 Batangas State University (The National Engineering University)
+# Project: IRIS Assistant System
+# 
+# Attributions:
+# - Wake Word: OpenWakeWord (David Scripka)
+# - STT: Faster-Whisper (SYSTRAN / Guillaume Klein)
+# - TTS: Kokoro-ONNX (StyleTTS2 architecture)
+# - RAG: LanceDB & HuggingFace (Nomic Embeddings)
+# - Reranking: FlashRank (Prithivi Da)
+# - Tooling: Model Context Protocol (Anthropic)
+# ==============================================================================
+
 import os
+import sys
+import json
+import logging
+import asyncio
+import warnings
+import numpy as np
+from contextlib import AsyncExitStack
+
+# MCP Client Imports
+from mcp import ClientSession, StdioServerParameters
+from mcp.client.stdio import stdio_client
+
+# AI / ML Imports
 import openwakeword
-from openai import OpenAI
-
-logging.getLogger().setLevel(logging.ERROR)
-warnings.filterwarnings("ignore")
-os.environ["HF_HUB_DISABLE_SYMLINKS_WARNING"] = "1"
-
 from openwakeword.model import Model
 from faster_whisper import WhisperModel
 from kokoro_onnx import Kokoro
-
-# --- NEW RAG IMPORTS ---
+from openai import OpenAI
 import lancedb
 from langchain_huggingface import HuggingFaceEmbeddings
 from langchain_community.vectorstores import LanceDB
 from flashrank import Ranker, RerankRequest
 
-import google.generativeai as genai
+# Local Utilities
+from text_utils import get_last_valid_split, format_spoken_text
 
+# System Configuration
+logging.getLogger().setLevel(logging.ERROR)
+warnings.filterwarnings("ignore")
+os.environ["HF_HUB_DISABLE_SYMLINKS_WARNING"] = "1"
 openwakeword.utils.download_models()
+
 
 class IrisAssistant:
     def __init__(self,
                  wake_word="hey_iris",
-                 whisper_size="distil-large-v3",
+                 whisper_size="large-v3",
                  male_voice='am_fenrir',
                  female_voice='bf_isabella',
                  wake_word_path='models/wakeword/hey_iris.onnx',
-                 wake_word_threshold = 0.4,
-                 stt_threshold = 0.75,
-                 lancedb_path="databases/lance_db",                       # Updated to LanceDB
-                 table_name="batstateu_rag_nomic",              # Updated to Nomic Table
-                 embed_model="nomic-ai/nomic-embed-text-v1.5",  # Updated to Nomic
-                 reranker_model="ms-marco-TinyBERT-L-2-v2",     # Updated to FlashRank model
+                 wake_word_threshold=0.2,
+                 stt_threshold=0.75,
+                 lancedb_path="databases/rag_db",
+                 table_name="batstateu_info",
+                 embed_model="nomic-ai/nomic-embed-text-v1.5",
+                 reranker_model="ms-marco-TinyBERT-L-2-v2",
                  rag_top_k=5,
                  initial_retrieval_k=12,
-                 websocket=None,
-                 websocket_loop=None,
-                 iris_ai_port=8001):
+                 iris_ai_port=8001,
+                 api_key="",
+                 vlm_alias="gemma-4-e2b-it",
+                 local_ip="localhost"):
 
         self.wakeword_threshold = wake_word_threshold
+        self.wake_word_path = wake_word_path
+        self.wakeword_key = os.path.splitext(os.path.basename(wake_word_path))[0]
         self.male_voice = male_voice
         self.female_voice = female_voice
-        self.tts_voice = self.female_voice
         self.rag_top_k = rag_top_k
         self.stt_threshold = stt_threshold
         self.initial_retrieval_k = max(initial_retrieval_k, rag_top_k)
         self.table_name = table_name
+        self.vlm_name = vlm_alias
+        self.local_ip = local_ip
         
-        self.client = OpenAI(
-            base_url=f"http://localhost:{iris_ai_port}/v1",
-            api_key="sk-no-key-required"
-        )
+        # 1. Core Models Setup
+        self.client = OpenAI(base_url=f"http://{local_ip}:{iris_ai_port}/v1", api_key="sk-no-key-required")
+        self.whisper = WhisperModel(whisper_size, device="cuda", compute_type="int8")
+        self.tts = Kokoro("models/tts/kokoro-v1.0.onnx", "models/tts/voices-v1.0.bin")
 
-        self.gemini_model = genai.GenerativeModel('gemini-2.5-flash')
-
-        print(f"Loading Iris Backend (Faster-Whisper {whisper_size})...")
-
-        # --- Wake Word ---
         try:
-            self.oww_model = Model(
-                wakeword_models=[wake_word_path],
-                inference_framework="onnx"
-            )
-            self.wakeword_key = os.path.splitext(
-                os.path.basename(wake_word_path)
-            )[0]
-            print(f"✅ Loaded custom wake word: {self.wakeword_key}")
+            self.oww_model = Model(wakeword_models=[wake_word_path], inference_framework="onnx")
         except Exception as e:
-            print(f"⚠️ Could not load {wake_word_path}: {e}")
-            print("   Falling back to hey_jarvis...")
-            self.oww_model = Model(
-                wakeword_models=["hey_jarvis"],
-                inference_framework="onnx"
-            )
-            self.wakeword_key = "hey_jarvis"
+            logging.warning(f"Failed to load specific wake word, falling back: {e}")
+            self.oww_model = Model(wakeword_models=["hey_jarvis"], inference_framework="onnx")
 
-        # --- Whisper ---
-        self.whisper = WhisperModel(
-            whisper_size,
-            device="cuda",
-            compute_type="int8"
-        )
-
-        self.websocket = websocket
-        self.websocket_loop = websocket_loop
-
-        # --- TTS ---
-        self.tts = Kokoro(
-            "models/tts/kokoro-v1.0.onnx",
-            "models/tts/voices-v1.0.bin"
-        )
-
-        # --- RAG Setup: Nomic Embeddings ---
-        print(f"Loading embedding model: {embed_model}")
+        # 2. RAG Setup
         self.embedder = HuggingFaceEmbeddings(
-            model_name=embed_model,
+            model_name=embed_model, 
             model_kwargs={'device': 'cuda', 'trust_remote_code': True}
         )
+        self.ranker = Ranker(model_name=reranker_model, cache_dir=os.path.join(os.getcwd(), "flashrank_cache"))
+        db = lancedb.connect(os.path.join(os.getcwd(), lancedb_path))
+        self.vector_store = LanceDB(connection=db, table_name=self.table_name, embedding=self.embedder)
+        
+        # 3. MCP Client Session State
+        self.mcp_session = None
+        self.mcp_tools = []
+        self.mcp_loop = None
 
-        # --- RAG Setup: FlashRank ---
-        print(f"Loading reranker model: {reranker_model}")
-        self.ranker = Ranker(
-            model_name=reranker_model, 
-            cache_dir=os.path.join(os.getcwd(), "flashrank_cache")
+    async def _init_mcp_client(self):
+        """Connects to the local MCP server and fetches available tools."""
+        self.mcp_loop = asyncio.get_running_loop()
+        server_script = os.path.join(os.path.dirname(__file__), "mcp_server.py")
+        
+        server_params = StdioServerParameters(
+            command=sys.executable, 
+            args=[server_script],
+            env=os.environ.copy()
         )
-
-        # --- RAG Setup: LanceDB ---
-        print(f"Opening LanceDB database at: {lancedb_path}")
-        db_path = os.path.join(os.getcwd(), lancedb_path)
-        db = lancedb.connect(db_path)
-        self.vector_store = LanceDB(
-            connection=db, 
-            table_name=self.table_name, 
-            embedding=self.embedder
-        )
-        print(f"Connected to LanceDB table: {self.table_name}")
-
-        self.speaking = False
-        self.is_thinking = False
-        self.interrupt = False
-        self._wakeword_triggered = False
-        self.audio_buffer = np.array([], dtype=np.int16)
-
-    def process_audio_chunk(self, pcm_int16: np.ndarray):
-        if self.speaking or getattr(self, 'is_thinking', False):
-            self.audio_buffer = np.array([], dtype=np.int16)
-            return
-
-        self.audio_buffer = np.concatenate((self.audio_buffer, pcm_int16))
-        step = 1280
-
-        while len(self.audio_buffer) >= step:
-            sub_chunk = self.audio_buffer[:step]
-            self.audio_buffer = self.audio_buffer[step:]
-
-            prediction = self.oww_model.predict(sub_chunk)
-            score = prediction.get(self.wakeword_key, 0.0)
-
-            if score > self.wakeword_threshold:
-                print(f"Wake word detected! (score={score:.2f})")
-
-                self.oww_model.reset()
-
-                if self.websocket and self.websocket_loop:
-                    asyncio.run_coroutine_threadsafe(
-                        self.websocket.send(json.dumps({"wakeword": True})),
-                        self.websocket_loop
-                    )
-                self._wakeword_triggered = True
-                self.audio_buffer = np.array([], dtype=np.int16)
-                break
+        
+        self.exit_stack = AsyncExitStack()
+        stdio_transport = await self.exit_stack.enter_async_context(stdio_client(server_params))
+        self.read, self.write = stdio_transport
+        self.mcp_session = await self.exit_stack.enter_async_context(ClientSession(self.read, self.write))
+        await self.mcp_session.initialize()
+        
+        mcp_tools_response = await self.mcp_session.list_tools()
+        for tool in mcp_tools_response.tools:
+            self.mcp_tools.append({
+                "type": "function",
+                "function": {
+                    "name": tool.name,
+                    "description": tool.description,
+                    "parameters": tool.inputSchema
+                }
+            })
+        print(f"✅ Loaded MCP Tools: {[t['function']['name'] for t in self.mcp_tools]}")
 
     def listen_for_command(self, pcm_chunks):
+        """Transcribes raw audio arrays into text using Faster-Whisper."""
         audio_flat = np.concatenate(pcm_chunks).flatten().astype(np.float32) / 32768.0
-
-        print("Whisper transcribing...")
         segments, _ = self.whisper.transcribe(
-            audio_flat,
-            beam_size=5,
-            language="en",
-            no_speech_threshold=self.stt_threshold,
-            log_prob_threshold=-1.0,        
-            condition_on_previous_text=False, 
-            temperature=0.0,                  
+            audio_flat, beam_size=5, language="en", no_speech_threshold=self.stt_threshold,
+            log_prob_threshold=-1.0, condition_on_previous_text=False, temperature=0.0,
         )
-        text = "".join(seg.text for seg in segments).strip()
-        print(f"Heard: {text}")
+        return "".join(seg.text for seg in segments).strip()
 
-        if self.websocket and self.websocket_loop:
-            if text:
-                asyncio.run_coroutine_threadsafe(
-                    self.websocket.send(json.dumps({"user_query": text})),
-                    self.websocket_loop
-                )
-            asyncio.run_coroutine_threadsafe(
-                self.websocket.send(json.dumps({"listening": False})),
-                self.websocket_loop
-            )
+    def _retrieve(self, query: str) -> str:
+        """Executes Hybrid Vector Search + TinyBERT Reranking via LanceDB."""
+        try:
+            query_vector = self.embedder.embed_query(f"search_query: {query}")
+            results_df = self.vector_store._table.search(query_vector).limit(self.initial_retrieval_k).to_pandas()
+            
+            if results_df.empty: 
+                return ""
+                
+            passages = [
+                {
+                    "id": str(i), 
+                    "text": row["text"], 
+                    "meta": {"doc_id": row.get("doc_id", "unknown")}
+                } 
+                for i, row in results_df.iterrows()
+            ]
+            
+            reranked = self.ranker.rerank(RerankRequest(query=query, passages=passages))
+            top_results = [item["text"] for item in reranked[:self.rag_top_k]]
+            
+            # Debugging Output
+            print("\n" + "="*50)
+            print(f"🔍 RETRIEVED {len(top_results)} CHUNKS FOR QUERY: '{query}'")
+            print("="*50)
+            for i, text in enumerate(top_results):
+                print(f"\n--- CHUNK {i+1} ---\n{text}")
+            print("\n" + "="*50 + "\n")
+                
+            return "\n\n".join(top_results)
+            
+        except Exception as e:
+            logging.error(f"[RETRIEVAL ERROR] {e}")
+            return ""
 
-        return text
+    def chat(self, user_text, on_sentence_ready, check_interrupt, current_location="Unknown Location"):
+        """Agentic chat loop with MCP Tool support and RAG integration."""
+        context = self._retrieve(user_text)
+        
+        # system_prompt = (
+        #     "You are Iris, an AI assistant for Batangas State University.\n\n"
+        #     "--- TOOL USAGE INSTRUCTIONS (CRITICAL) ---\n"
+        #     "1. You MUST read the 'Retrieved Campus Database Context' below FIRST.\n"
+        #     "2. If you do not know the answer, call the 'ask_gemini' tool.\n"
+        #     "2. If the context contains the answer, you MUST use it to answer the user. Do NOT call any tools.\n"
+        #     "3. ONLY use the 'ask_gemini' tool if you have thoroughly read the context and the answer is completely missing.\n"
+        #     "4. ONLY use the 'open_deepfake_detector' tool if the user is asking for a deepfake check or a provenance check for their videos.\n\n"
+        #     "--- FINAL SPOKEN RESPONSE FORMAT ---\n"
+        #     "Once you have your final answer, speak it naturally in pure-text. Do NOT use Markdown, asterisks, or bullet points.\n\n"
+        #     f"--- Retrieved Campus Database Context ---\n{context}\n"
+        # )
 
-    def _format_chunk(self, doc: str, meta: dict) -> str:
-        source = meta.get("source", meta.get("source_file", "unknown_source"))
-        title = meta.get("document_title", source)
-        chunk_id = meta.get("chunk_id", meta.get("doc_id", "unknown_chunk"))
-        section_path = meta.get("section_path", "")
-        page_start = meta.get("page_start")
-        page_end = meta.get("page_end")
+        system_prompt = system_prompt = (
+            "You are Iris, an AI assistant for Batangas State University.\n\n"
+            "--- EXECUTION LOGIC (CRITICAL) ---\n"
+            "Step 1: Read the 'Retrieved Campus Database Context' below.\n"
+            "Step 2: Evaluate if the context contains the exact answer to the user's query.\n"
+            "Step 3: Apply the following conditional logic:\n"
+            "  - IF THE ANSWER IS IN THE CONTEXT: Answer the user directly. Do NOT call any tools.\n"
+            "  - IF THE ANSWER IS MISSING: You MUST instantly call the 'ask_gemini' tool. NEVER say 'I do not have enough information', NEVER apologize, and NEVER generate spoken text. ONLY output the tool call.\n"
+            "  - IF THE USER ASKS ABOUT DEEPFAKES/PROVENANCE: Instantly call the 'open_deepfake_detector' tool.\n\n"
+            "--- FINAL SPOKEN RESPONSE FORMAT ---\n"
+            "When you are ready to give your final answer (either from the context or after receiving a tool's output), you must speak naturally in pure conversational text.\n"
+            "You are connected to a Text-to-Speech engine. You MUST NOT use any Markdown, asterisks, bolding, bullet points, or special characters. Write numbers as words if necessary.\n\n"
+            # "IF you are NOT SURE about the answer, try using 'ask_gemini' tool."
+            f"--- Retrieved Campus Database Context ---\n{context}\n"
+        )
 
-        header_parts = [f"Source: {source}", f"Title: {title}", f"Chunk: {chunk_id}"]
-
-        if section_path:
-            header_parts.append(f"Section: {section_path}")
-
-        if page_start is not None and page_end is not None:
-            if page_start == page_end:
-                header_parts.append(f"Page: {page_start}")
-            else:
-                header_parts.append(f"Pages: {page_start}-{page_end}")
-        elif page_start is not None:
-            header_parts.append(f"Page: {page_start}")
-
-        header = " | ".join(header_parts)
-        return f"[{header}]\n{doc}"
-
-    def _retrieve(self, query: str):
-        # 1. Initial Retrieval via LanceDB & LangChain
-        retrieved_docs = self.vector_store.similarity_search(query, k=self.initial_retrieval_k)
-
-        if not retrieved_docs:
-            return "", []
-
-        # 2. Format passages for FlashRank
-        passages = [
-            {"id": str(i), "text": doc.page_content, "meta": doc.metadata}
-            for i, doc in enumerate(retrieved_docs)
+        messages = [
+            {"role": "system", "content": system_prompt},
+            {"role": "user", "content": user_text}
         ]
 
-        # 3. Rerank
-        rerank_request = RerankRequest(query=query, passages=passages)
-        reranked_results = self.ranker.rerank(rerank_request)
+        # Phase 1: Tool Calling Evaluation (Non-streaming)
+        response = self.client.chat.completions.create(
+            model=self.vlm_name,
+            messages=messages,
+            tools=self.mcp_tools,
+            tool_choice="auto",
+            temperature=0.1
+        )
 
-        # 4. Extract Top K
-        formatted_chunks = []
-        retrieval_log = []
+        message = response.choices[0].message
+        messages.append(message)
 
-        for i, item in enumerate(reranked_results[:self.rag_top_k]):
-            meta = item["meta"]
-            formatted_chunks.append(self._format_chunk(item["text"], meta))
-            
-            retrieval_log.append({
-                "rank": i + 1,
-                "chunk_id": meta.get("chunk_id", meta.get("doc_id", "unknown_chunk")),
-                "source": meta.get("source", meta.get("source_file", "unknown_source")),
-                "section_path": meta.get("section_path", ""),
-                "page_start": meta.get("page_start"),
-                "page_end": meta.get("page_end"),
-                "distance": "N/A", # FlashRank uses scores instead of vector distance
-                "rerank_score": item.get("score", 0.0),
+        # Phase 2: Execute MCP Tools if requested
+        if message.tool_calls:
+            for tool_call in message.tool_calls:
+                func_name = tool_call.function.name
+                args = json.loads(tool_call.function.arguments)
+                
+                if func_name == "get_kiosk_location":
+                    args["current_location"] = current_location
+
+                print(f"\n[Agent executing tool: {func_name}]")
+                try:
+                    # Safely await the async tool call from the synchronous thread
+                    future = asyncio.run_coroutine_threadsafe(
+                        self.mcp_session.call_tool(func_name, arguments=args),
+                        self.mcp_loop
+                    )
+                    result = future.result() 
+                    tool_content = result.content[0].text
+                except Exception as e:
+                    tool_content = f"Error executing tool: {str(e)}"
+
+                messages.append({
+                    "role": "tool",
+                    "tool_call_id": tool_call.id,
+                    "content": tool_content
+                })
+
+            # --- THE WAKE-UP NUDGE ---
+            # This forces the local LLM to speak the tool's result out loud instead of returning an empty string.
+            messages.append({
+                "role": "user",
+                "content": "The tool successfully executed and returned the result above. Please summarize what you just did for me naturally."
             })
 
-        return "\n\n".join(formatted_chunks), retrieval_log
-
-    def speak(self, text, display_text=None):
-        if not text.strip():
-            return
-
-        if display_text is None:
-            display_text = text
-
-        self.speaking = True
-
-        try:
-            samples, sample_rate = self.tts.create(
-                text,
-                voice=self.tts_voice,
-                speed=1.0,
-                lang="en-us"
+            # Stream the final answer after tool execution
+            stream_response = self.client.chat.completions.create(
+                model=self.vlm_name,
+                messages=messages,
+                stream=True
+            )
+        else:
+            # Re-run as a stream if no tools were needed
+            messages.pop() 
+            stream_response = self.client.chat.completions.create(
+                model=self.vlm_name,
+                messages=messages,
+                stream=True
             )
 
-            samples = np.clip(samples, -1.0, 1.0)
+        # Phase 3: Sentence Chunking & TTS Streaming
+        self._stream_to_tts(stream_response, on_sentence_ready, check_interrupt)
+    
+    def _stream_to_tts(self, stream_response, on_sentence_ready, check_interrupt):
+        """Consumes the LLM token stream and chunks it into sentences for the TTS engine."""
+        full_response, sentence_buffer = "", ""
 
-            import io
-            import wave
+        for chunk in stream_response:
+            if check_interrupt(): break
+            if chunk.choices[0].delta.content:
+                content = chunk.choices[0].delta.content
+                print(content, end="", flush=True)
+                full_response += content
+                sentence_buffer += content
 
-            buf = io.BytesIO()
-            with wave.open(buf, 'wb') as wf:
-                wf.setnchannels(1)
-                wf.setsampwidth(2)
-                wf.setframerate(sample_rate)
-                wf.writeframes((samples * 32767).astype(np.int16).tobytes())
+                split_index = get_last_valid_split(sentence_buffer)
 
-            wav_bytes = buf.getvalue()
+                if split_index != -1:
+                    complete_words = sentence_buffer[:split_index].strip()
+                    if len(complete_words) > 2:
+                        spoken = format_spoken_text(complete_words)
+                        on_sentence_ready(spoken, complete_words + " ")
+                    sentence_buffer = sentence_buffer[split_index:]
 
-            if self.websocket and self.websocket_loop:
-                asyncio.run_coroutine_threadsafe(
-                    self.websocket.send(json.dumps({"ai_text_sync": display_text})),
-                    self.websocket_loop
-                ).result()
-
-                asyncio.run_coroutine_threadsafe(
-                    self.websocket.send(wav_bytes),
-                    self.websocket_loop
-                ).result()
-
-        except Exception as e:
-            print(f"TTS Error: {e}")
-
-        finally:
-            self.speaking = False
-
-    def chat(self, user_text):
-        print(f"📝 You: {user_text}")
-        self.is_thinking = True
-        self.interrupt = False
-        
-        context, retrieval_log = self._retrieve(user_text)
-        print(f"Retrieved and reranked {len(retrieval_log)} chunks from LanceDB table '{self.table_name}'.")
-
-        for item in retrieval_log:
-            print(f"   {item['rank']}. {item['source']} | {item['section_path']} | pages {item['page_start']}-{item['page_end']} | rerank_score={item['rerank_score']:.4f}")
-
-        # STRONGER PROMPT: Forced exactly "CRITICAL_MISSING" for fallback
-        iris_context = (
-            "You are Iris, an AI assistant for Batangas State University - The National Engineering University - Alangilan Campus.\n"
-            "Your output will be read aloud by a Text-to-Speech engine. Answer in a natural, conversational, pure-text format. NO Markdown, bullet points, or emojis.\n\n"
-            "CORE KNOWLEDGE RULES:\n"
-            "1. STRICT GROUNDING: Use the retrieved campus documents as your absolute and only source of truth.\n"
-            "2. MISSING INFORMATION: If the answer is not explicitly found in the retrieved context, you MUST output the exact string \"CRITICAL_MISSING\" and absolutely nothing else. Do not explain or apologize.\n\n"
-            "SPECIAL TOOL RULE: DEEPFAKE DETECTION\n"
-            "- TRIGGER: ONLY IF the user explicitly asks about \"deepfake detection,\" \"provenance checking,\" or verifying if media is \"AI-generated.\"\n"
-            "- ACTION: Include this exact phrasing: \"You can check the authenticity of your media using our Deepfake Detector tool at the following link: http://localhost:4321\""
-        )
-
-        combined_payload = (
-            f"{iris_context}\n\n"
-            f"--- Retrieved Campus Excerpts ---\n{context}\n"
-            f"--- End of Excerpts ---\n\n"
-            f"User Question: {user_text}"
-        )
-
-        print("Iris: ", end="", flush=True)
-        
-        full_response = ""
-        sentence_buffer = ""
-        word_count_in_buffer = 0
-        WORD_SPEAK_THRESHOLD = 12
-        fallback_to_gemini = False
-
-        # --- Helper for streaming, websockets, and TTS ---
-        def _process_chunk(new_text, current_response, current_buffer, current_word_count):
-            print(new_text, end="", flush=True)
-            current_response += new_text
-            current_buffer += new_text
-
-            # Mask abbreviations to prevent false sentence boundaries from triggering early
-            test_buffer = (current_buffer
-                           .replace("Engr. ", "Engr_ ")
-                           .replace("Atty. ", "Atty_ ")
-                           .replace("Assoc. ", "Assoc_ ")
-                           .replace("Prof. ", "Prof_ ")
-                           .replace("Dr. ", "Dr_ "))
-
-            split_index = -1
-            
-            # 1. Try to split at a clean sentence boundary (. ? ! \n)
-            for punct in ['. ', '! ', '? ', '\n']:
-                idx = test_buffer.rfind(punct)
-                if idx != -1:
-                    # Split exactly after the punctuation mark
-                    split_index = max(split_index, idx + 1)
-
-            # 2. If no sentence boundary, check word limit and split at the last space
-            # This guarantees we NEVER cut a token or word in half!
-            if split_index == -1 and len(current_buffer.split()) >= WORD_SPEAK_THRESHOLD:
-                idx = current_buffer.rfind(' ')
-                if idx != -1:
-                    split_index = idx
-
-            if split_index != -1:
-                complete_words = current_buffer[:split_index].strip()
-                leftover = current_buffer[split_index:]
-                
-                if len(complete_words) > 2:
-                    spoken_sentence = (complete_words
-                                       .replace("Engr.", "Engineer")
-                                       .replace("Atty.", "Attorney")
-                                       .replace("Assoc. Prof.", "Associate Professor")
-                                       .replace("Assoc.", "Associate")
-                                       .replace("Prof.", "Professor")
-                                       .replace("Dr.", "Doctor"))
-                    self.speak(spoken_sentence, complete_words + " ")
-                    
-                current_buffer = leftover
-
-            # We no longer need to manually track word count since we calculate it dynamically
-            return current_response, current_buffer, 0
-
-        try:
-            # 1. ATTEMPT LOCAL QWEN INFERENCE
-            response_stream = self.client.chat.completions.create(
-                model="qwen3-vl",
-                messages=[{"role": "user", "content": combined_payload}],
-                stream=True,
-                temperature=0.1,
-                max_tokens=512,
-            )
-
-            # FIX 2: STARTUP BUFFER to prevent failure text from leaking to the UI
-            startup_buffer = ""
-            streaming_started = False
-
-            for chunk in response_stream:
-                if self.interrupt:
-                    break
-
-                if chunk.choices[0].delta.content:
-                    content = chunk.choices[0].delta.content
-                    
-                    if not streaming_started:
-                        startup_buffer += content
-                        
-                        # Catch the failure trigger while it's still trapped in the buffer
-                        if "CRITICAL" in startup_buffer.upper():
-                            fallback_to_gemini = True
-                            break # Abort local, switch to Gemini instantly
-                        
-                        # If we hit 16 safe characters, release the buffer to the UI and continue
-                        if len(startup_buffer) > 16:
-                            streaming_started = True
-                            full_response, sentence_buffer, word_count_in_buffer = _process_chunk(
-                                startup_buffer, full_response, sentence_buffer, word_count_in_buffer
-                            )
-                    else:
-                        full_response, sentence_buffer, word_count_in_buffer = _process_chunk(
-                            content, full_response, sentence_buffer, word_count_in_buffer
-                        )
-
-            # 2. FALLBACK TO GEMINI IF TRIGGERED
-            if fallback_to_gemini:
-                print("\n[Local context insufficient. Searching with Gemini...]\nIris (via Gemini): ", end="", flush=True)
-                
-                full_response = "" 
-                sentence_buffer = ""
-                word_count_in_buffer = 0
-                
-                gemini_prompt = (
-                    f"You are Iris, a helpful voice assistant. Please answer the following question in a conversational, natural tone suitable for text-to-speech. Do not use markdown, bullet points, or emojis.\n\nUser Question: {user_text}"
-                )
-                
-                gemini_stream = self.gemini_model.generate_content(gemini_prompt, stream=True)
-                
-                for g_chunk in gemini_stream:
-                    if self.interrupt:
-                        break
-
-                    if g_chunk.text:
-                        full_response, sentence_buffer, word_count_in_buffer = _process_chunk(
-                            g_chunk.text, full_response, sentence_buffer, word_count_in_buffer
-                        )
-
-            # Flush any remaining words in the buffer to TTS
-            final_fragment = sentence_buffer.strip()
-            if len(final_fragment) > 0:
-                spoken_sentence = (final_fragment
-                                   .replace("Engr.", "Engineer")
-                                   .replace("Atty.", "Attorney")
-                                   .replace("Assoc. Prof.", "Associate Professor")
-                                   .replace("Assoc.", "Associate")
-                                   .replace("Prof.", "Professor")
-                                   .replace("Dr.", "Doctor"))
-                self.speak(spoken_sentence, final_fragment)
-
-            print("\n")
-
-        except Exception as e:
-            print(f"\nError during generation: {e}")
-
-        finally:
-            self.oww_model.reset()
-            self.is_thinking = False
-            if self.websocket and self.websocket_loop:
-                asyncio.run_coroutine_threadsafe(
-                    self.websocket.send(json.dumps({"speaking": False})),
-                    self.websocket_loop
-                )
-
-        return full_response
-
-    def close(self):
-        print("Shutting down Iris...")
+        final_fragment = sentence_buffer.strip()
+        if final_fragment and not check_interrupt():
+            spoken = format_spoken_text(final_fragment)
+            on_sentence_ready(spoken, final_fragment)

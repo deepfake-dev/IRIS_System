@@ -1,7 +1,12 @@
+# ==============================================================================
+# Copyright (c) 2026 Batangas State University (The National Engineering University)
+# Project: IRIS Assistant System - Multimedia Provenance CLI
+# ==============================================================================
+
 import os
 import sys
-import ast
 from os.path import isfile, join
+
 from metadata_scanner import analyze_media, Decision
 from vlm_classifier import llm_classify_video
 from deepfake_detector import DeepfakeDetector
@@ -15,13 +20,12 @@ def process_file(file):
         print("Verdict:", result.reason)
     elif (result.isAIGenerated == Decision.MAYBE):
         print(f"{result.reason}")
-        verdict = llm_classify_video(file, result.reason)
-        verdict, reason = verdict
+        verdict_str, reason = llm_classify_video(file, result.reason)
 
-        if verdict in ['Animated', 'Recording', 'Generated']:
-            print("Verdict:", verdict)
+        if verdict_str in ['Animated', 'Recording', 'Generated']:
+            print("Verdict:", verdict_str)
         else:
-            print(f"LLM Can't Decide [{verdict} | {reason}]. Let's try our Classifier")
+            print(f"LLM Can't Decide [{verdict_str} | {reason}]. Let's try our Classifier")
             detector = DeepfakeDetector(onnx_path="models/provenance/deepfake_detector_model.onnx")
             final_verdict = detector.predict(file)
             print(f"Overall Verdict:        {'🛑 FAKE' if final_verdict['is_fake'] else '✅ REAL'}")
@@ -29,10 +33,10 @@ def process_file(file):
             print(f"Average AI Confidence:  {final_verdict['average_confidence']:.4f} (For reference only)")
 
 def process_dir(folder_path):
-    folder_path = "C:/Users/owen/Desktop/thesis/vids_to_test"
     print("STARTING ANALYSIS!!!")
     for f in os.listdir(folder_path):
-        if isfile(fil:=join(folder_path, f)):
+        fil = join(folder_path, f)
+        if isfile(fil):
             file = fil.replace("\\", "/")
             process_file(file)
             print("----------------------------------------\n\n")
