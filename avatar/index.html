@@ -240,6 +240,7 @@
     justify-content: space-between;
     align-items: center;
     width: 100%;
+    padding: 10px 20px;
   }
   .qr-panel {
     display: flex;
@@ -269,6 +270,75 @@
     word-break: break-all;
     text-align: center;
     max-width: 220px;
+  }
+
+  /* ==============================================================
+     RESPONSIVE DESIGN ADDITIONS
+     ============================================================== */
+  
+  @media (max-width: 1024px) {
+    /* Stack the interface vertically on tablets and mobile */
+    .main {
+      flex-direction: column !important;
+      overflow-y: auto;
+    }
+    
+    /* Avatar takes up the top portion */
+    .avatar-col {
+      width: 100% !important;
+      height: 45vh !important;
+      min-height: 350px;
+      border-right: none !important;
+      border-bottom: 2px solid var(--light, #e0e0e0);
+    }
+    
+    /* Conversation box takes the remaining space below */
+    .conv-col {
+      width: 100% !important;
+      height: auto !important;
+      flex: 1;
+    }
+    
+    .school-tagline {
+      display: none !important; /* Hide long subtitle to save header space */
+    }
+  }
+
+  @media (max-width: 600px) {
+    /* Compress the topbar further for phones */
+    .topbar {
+      flex-direction: column;
+      gap: 12px;
+      padding: 12px !important;
+      height: auto !important;
+    }
+    
+    .topbar-left {
+      width: 100%;
+      justify-content: center;
+    }
+    
+    .topbar-right {
+      width: 100%;
+      justify-content: center;
+      flex-wrap: wrap;
+      gap: 10px;
+    }
+
+    .topbar-btn-divider {
+      display: none; /* Remove structural dividers when wrapped */
+    }
+
+    .bottombar {
+      flex-direction: column;
+      gap: 8px;
+      text-align: center;
+    }
+    
+    .avatar-col {
+      height: 40vh !important;
+      min-height: 280px;
+    }
   }
 </style>
 
