@@ -9,7 +9,7 @@
                  script-src 'self' https://cdn.jsdelivr.net https://fonts.cdnfonts.com 'unsafe-inline';
                  style-src  'self' https://fonts.cdnfonts.com 'unsafe-inline';
                  font-src   https://fonts.cdnfonts.com data:;
-                 connect-src 'self' blob: ws://localhost:8080 wss://localhost:8443;
+                 connect-src 'self' blob: ws: wss:;
                  img-src 'self' data: blob:;
                  worker-src 'self' blob:;">
   <link rel="icon" type="image/png" href="./icon.png">
@@ -40,6 +40,10 @@
     <div class="topbar-center"></div>
 
     <div class="topbar-right">
+      <div class="location-display">
+        <span class="loc-icon">📍</span>
+        <span id="kioskLocationText">Main Campus</span>
+      </div>
       <button class="gender-toggle-btn" id="genderToggleBtn" onclick="toggleVRMGender()">
         <span id="genderToggleIcon">♀</span>
         <span id="genderToggleLabel">Female</span>
@@ -50,6 +54,10 @@
         <span id="enableMicLabel">Enable Microphone</span>
       </button>
     </div>
+  </div>
+  <div id="ws-status-banner" class="ws-status-banner" style="display: none;">
+    <span class="ws-status-icon">⚠️</span>
+    <span id="ws-status-text">Connection lost. Reconnecting...</span>
   </div>
   <div class="main">
     <div class="avatar-col">
@@ -111,11 +119,18 @@
           </div>
           
           <div class="wake-prompt" id="wakePrompt">
-            Microphone is active. Say the wake word to ask a question.
+            Microphone is active. Say the wake word or tap below.
             <strong>"Hey Iris"</strong>
-            <div class="wake-prompt-dots">
-              <div class="wp-dot"></div><div class="wp-dot"></div><div class="wp-dot"></div>
-            </div>
+            
+            <button class="tap-speak-btn" onclick="triggerManualListen()">
+              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                <path d="M12 1a3 3 0 0 0-3 3v8a3 3 0 0 0 6 0V4a3 3 0 0 0-3-3z"></path>
+                <path d="M19 10v2a7 7 0 0 1-14 0v-2"></path>
+                <line x1="12" y1="19" x2="12" y2="23"></line>
+                <line x1="8" y1="23" x2="16" y2="23"></line>
+              </svg>
+              Tap to Speak
+            </button>
           </div>
           
           <div class="qr-panel" id="qrPanel" style="display:none;">

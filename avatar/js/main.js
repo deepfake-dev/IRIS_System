@@ -26,13 +26,6 @@ new ResizeObserver(resizeRenderer).observe(col);
 const vrmCtrl  = new VRMController(scene);
 const animCtrl = new AnimationController(vrmCtrl);
 
-const ANIMATION_FILES = {
-  idle:      ['./animations/idle1.fbx', './animations/idle2.fbx', './animations/idle3.fbx'],
-  talking:   ['./animations/talk1.fbx', './animations/talk2.fbx'],
-  listening: ['./animations/listen1.fbx'],
-  thinking:  ['./animations/think1.fbx']
-};
-
 function applyDefaultPose(gender) {
   if (gender === 'female') {
     // Female: Relaxed A-pose
@@ -49,15 +42,8 @@ function applyDefaultPose(gender) {
 vrmCtrl.load('./bsu_girl.vrm')
   .then(async vrm => {
     applyDefaultPose('female');
-    
-    // Wipe memory and load FBX files for this specific skeleton
-    animCtrl.clearCache();
-    await Promise.all([
-      animCtrl.loadStateAnimations('idle', ANIMATION_FILES.idle),
-      animCtrl.loadStateAnimations('talking', ANIMATION_FILES.talking),
-      animCtrl.loadStateAnimations('listening', ANIMATION_FILES.listening),
-      animCtrl.loadStateAnimations('thinking', ANIMATION_FILES.thinking)
-    ]);
+    animCtrl.setGender('female');
+    animCtrl.init(); // Build mixer + clips from the freshly loaded VRM
 
     loading.style.display = 'none';
     animCtrl.playState('idle'); // Start breathing immediately!
@@ -89,17 +75,13 @@ window.switchVRMModel = function(gender) {
     ws.send({ command: 'set_voice', gender: gender });
   }
 
+  animCtrl.clearCache(); // Wipe old mixer BEFORE loading the new model
+
   vrmCtrl.load(url)
     .then(async vrm => {
       applyDefaultPose(gender);
-
-      animCtrl.clearCache();
-      await Promise.all([
-        animCtrl.loadStateAnimations('idle', ANIMATION_FILES.idle),
-        animCtrl.loadStateAnimations('talking', ANIMATION_FILES.talking),
-        animCtrl.loadStateAnimations('listening', ANIMATION_FILES.listening),
-        animCtrl.loadStateAnimations('thinking', ANIMATION_FILES.thinking)
-      ]);
+      animCtrl.setGender(gender);
+      animCtrl.init(); // Build mixer + clips from the newly loaded VRM
 
       loading.style.display = 'none';
       animCtrl.playState('idle');
@@ -123,11 +105,17 @@ audioMgr.onMouth(v => vrmCtrl.setMouth(v));
 signalHandler.audioMgr = audioMgr;
 window._audioMgr = audioMgr;
 
+const urlParams = new URLSearchParams(window.location.search);
+const kioskLocation = urlParams.get('location') || "BatStateU Main Campus";
+
+const locTextEl = document.getElementById('kioskLocationText');
+if (locTextEl) locTextEl.textContent = kioskLocation;
+
 let _pendingText = '';
 let ws;
 try {
   ws = new SecureWebSocket(
-    `wss://${window.location.hostname}:8080`,
+    `wss://${window.location.hostname}:7040`,
     payload => {
       // Intercept the new synced text command from Python
       if (payload.ai_text_sync !== undefined) {
@@ -137,8 +125,23 @@ try {
       }
     },
     state   => {
-      const labels = { connected: 'Connected to Python', disconnected: 'Disconnected — retrying…', reconnecting: 'Reconnecting…' };
-      console.log('[WS]', labels[state] ?? state);
+      const banner = document.getElementById('ws-status-banner');
+      const textEl = document.getElementById('ws-status-text');
+      
+      if (state === 'connected') {
+        if (banner) banner.style.display = 'none';
+        console.log('[WS] Connected to Python');
+
+        ws.send({ command: 'init_kiosk', location: kioskLocation });
+      } else {
+        if (banner) banner.style.display = 'flex';
+        if (textEl) {
+          textEl.textContent = state === 'reconnecting' 
+            ? 'Connection lost. Reconnecting...' 
+            : 'Server Offline';
+        }
+        console.warn(`[WS] ${state}`);
+      }
     },
     buf => {
       // Bundle the binary audio with the text we just received!
@@ -193,66 +196,128 @@ function showListeningIndicator(active) {
   }
 }
 
-let typeTimer = null;
-let _fullTypeText = ''; 
+let _typeTimer = null;
+let _typeQueue = '';
+let _isTyping = false;
+let _fullTypeText = '';
 
+// =========================================================
+// 1. THE DEDICATED TYPEWRITER ENGINE
+// =========================================================
+class TypewriterEngine {
+  constructor(elementId) {
+    this.containerId = elementId;
+    this.queue = '';
+    this.fullText = '';
+    this.timer = null;
+    this.isTyping = false;
+  }
+
+  startNewResponse() {
+    // 1. Wipe all previous timers and memory
+    if (this.timer) clearInterval(this.timer);
+    this.queue = '';
+    this.fullText = '';
+    this.isTyping = false;
+    
+    // 2. Prepare the HTML containers safely
+    const el = document.getElementById(this.containerId);
+    if (el) {
+      el.dataset.hasResponse = '1';
+      // Separate the text content from the blinking cursor
+      el.innerHTML = '<span class="ai-text-content"></span><span class="cursor"></span>';
+    }
+    _showSkipBtn(true);
+  }
+
+  append(text) {
+    this.fullText += text;
+    this.queue += text;
+    
+    if (!this.isTyping) {
+      this.isTyping = true;
+      this.timer = setInterval(() => {
+        const el = document.getElementById(this.containerId);
+        const textSpan = el ? el.querySelector('.ai-text-content') : null;
+        
+        // Type the next character
+        if (this.queue.length > 0 && textSpan) {
+          textSpan.textContent += this.queue[0];
+          this.queue = this.queue.slice(1);
+          el.scrollTop = el.scrollHeight;
+        } else {
+          // Pause if we are waiting for Python to send the next chunk
+          clearInterval(this.timer);
+          this.isTyping = false;
+          
+          if (this.queue.length === 0) {
+            _showSkipBtn(false);
+          }
+        }
+      }, 18); // Typing speed
+    }
+  }
+
+  skip() {
+    if (this.timer) clearInterval(this.timer);
+    this.queue = '';
+    this.isTyping = false;
+    
+    const el = document.getElementById(this.containerId);
+    if (el && this.fullText) {
+      // Dump the full text instantly, removing the cursor
+      el.innerHTML = this.fullText;
+      el.scrollTop = el.scrollHeight;
+    }
+    _showSkipBtn(false);
+  }
+}
+
+// Initialize the global engine
+const aiTypewriter = new TypewriterEngine('aiText');
+aiTypewriter.startNewResponse();
+aiTypewriter.append("Good day! I'm Iris, the AI Assistant for Batangas State University - TNEU - Alangilan Campus. How may I assist you today?");
+
+// =========================================================
+// 2. UI CONTROLS
+// =========================================================
 function _showSkipBtn(show) {
   const row = el('skipResponseRow');
   if (row) row.style.display = show ? 'flex' : 'none';
 }
 
 window.doSkipResponse = function() {
-  if (typeTimer) { clearInterval(typeTimer); typeTimer = null; }
-  const aiEl = el('aiText');
-  if (aiEl && _fullTypeText) {
-    aiEl.innerHTML = _fullTypeText;
-    aiEl.scrollTop = aiEl.scrollHeight;
-  }
-  
-  if (audioMgr) {
-    audioMgr.stopAll(); // Kills active audio and empties the queue instantly
-  }
-  _showSkipBtn(false);
-
-  // Shoot a message to Python to kill the generator
-  if (ws) {
-    ws.send({ command: 'interrupt' });
-  }
+  aiTypewriter.skip();
+  if (window._audioMgr) window._audioMgr.stopAll();
+  if (ws) ws.send({ command: 'interrupt' });
 };
 
-function typeText(text) {
-  const aiEl = el('aiText');
-  if (!aiEl) return;
-  aiEl.dataset.hasResponse = '1';
-  aiEl.innerHTML = '';
-  _fullTypeText = text;
-  let i = 0;
-  clearInterval(typeTimer);
-  _showSkipBtn(true);
-  typeTimer = setInterval(() => {
-    if (i < text.length) {
-      aiEl.innerHTML = text.slice(0, ++i) + '<span class="cursor"></span>';
-    } else {
-      aiEl.innerHTML = text;
-      clearInterval(typeTimer);
-      typeTimer = null;
-      _showSkipBtn(false);
-    }
-  }, 18);
-}
-
-typeText("Good day! I'm Iris, the AI Assistant for Batangas State University - TNEU - Alangilan Campus. How may I assist you today?");
+window.triggerManualListen = function() {
+  // 1. If the microphone isn't enabled yet, click the top button for them
+  if (window._audioMgr && !window._audioMgr.isUserEnabled) {
+    const micBtn = document.getElementById('enableMicBtn');
+    if (micBtn) micBtn.click();
+  }
+  
+  // 2. Tell Python to start recording instantly
+  if (ws) {
+    ws.send({ command: 'start_listening' });
+  }
+};
 
 const wakePill   = el('wake-pill');
 const wakeText   = el('wake-text');
 const wakeStatus = el('wake-status');
+let _responseStarted = false; // Tracks if Python has sent the first chunk yet
 
+// =========================================================
+// 3. EVENT LISTENERS
+// =========================================================
 window.addEventListener('iris:wakeword', () => {
   animCtrl.playState('listening');
-  _responseStarted = false;
+  _responseStarted = false; // Reset state for Wake Word
   hideQR();
   
-  // Hide wake prompt when wake word is detected
   const wp = el('wakePrompt');
   if (wp) wp.style.display = 'none';
 
@@ -265,13 +330,16 @@ window.addEventListener('iris:listening', e => {
   showListeningIndicator(!!e.detail);
   const wp = el('wakePrompt');
 
-  if (e.detail) { // Recording user query
+  if (e.detail) { 
+    // Recording user query
+    _responseStarted = false; // Reset state for Tap-To-Speak
     animCtrl.playState('listening');
     if (wp) wp.style.display = 'none';
     if (wakePill)   wakePill.classList.add('active');
     if (wakeText)   wakeText.innerHTML = 'Listening…';
     if (wakeStatus) wakeStatus.textContent = 'Active';
-  } else { // Finished recording, sending to knowledge base
+  } else { 
+    // Finished recording, retrieving
     animCtrl.playState('thinking');
     const ind  = el('typingInd');
     const aiEl = el('aiText');
@@ -290,7 +358,7 @@ window.addEventListener('iris:audiostate', e => {
   const wp = el('wakePrompt');
 
   switch (e.detail) {
-    case 'speaking': // AI is talking out loud
+    case 'speaking':
       animCtrl.playState('talking');
       if (wakeStatus) wakeStatus.textContent = 'Speaking';
       if (wp) wp.style.display = 'none';
@@ -298,7 +366,7 @@ window.addEventListener('iris:audiostate', e => {
       _showSkipBtn(true);
       break;
 
-    case 'listening': // AI is recording audio
+    case 'listening':
       animCtrl.playState('listening');
       if (wakeStatus) wakeStatus.textContent = 'Active';
       if (wp) wp.style.display = 'none';
@@ -306,7 +374,7 @@ window.addEventListener('iris:audiostate', e => {
       showListeningIndicator(true);
       break;
 
-    default: // 'idle' — AI finished talking
+    default: // 'idle'
       animCtrl.playState('idle');
       if (wakeStatus) wakeStatus.textContent = 'Standby';
       if (wakePill)   wakePill.classList.remove('active');
@@ -315,11 +383,32 @@ window.addEventListener('iris:audiostate', e => {
       _showSkipBtn(false);
       showListeningIndicator(false);
       
-      // ONLY show the prompt if the user's master switch is ON
       if (wp && window._audioMgr && window._audioMgr.isUserEnabled) {
         wp.style.display = 'block';
       }
   }
+});
+
+window.addEventListener('iris:sync_text', e => {
+  const ind = el('typingInd');
+
+  // If this is the VERY FIRST chunk of a new answer, prepare the UI
+  if (!_responseStarted) {
+    _responseStarted = true;
+    if (ind) ind.style.display = 'none';
+    
+    // Safely clear the screen and start the typewriter
+    aiTypewriter.startNewResponse();
+    
+    const qCountEl = el('qCount');
+    if (qCountEl) qCountEl.textContent = parseInt(qCountEl.textContent || 0) + 1;
+  }
+
+  // Pass the chunk to our new engine
+  aiTypewriter.append(e.detail);
+
+  const matches = aiTypewriter.fullText.match(URL_REGEX);
+  if (matches && matches.length > 0) showQR(matches[0]);
 });
 
 const URL_REGEX = /(https?:\/\/[^\s]+)/g;
@@ -354,33 +443,6 @@ function hideQR() {
   if (panel) panel.style.display = 'none';
   _lastQRUrl = null;
 }
-
-let _responseStarted  = false;
-let _accumulatedText  = '';
-
-window.addEventListener('iris:sync_text', e => {
-  const aiEl = el('aiText');
-  const ind  = el('typingInd');
-  if (!aiEl) return;
-
-  if (!_responseStarted) {
-    _responseStarted = true;
-    _accumulatedText = '';
-    aiEl.dataset.hasResponse = '1';
-    aiEl.textContent = '';
-    if (ind) ind.style.display = 'none';
-    
-    const qCountEl = el('qCount');
-    if (qCountEl) qCountEl.textContent = parseInt(qCountEl.textContent || 0) + 1;
-  }
-
-  _accumulatedText += e.detail;
-  aiEl.textContent += e.detail;
-  aiEl.scrollTop = aiEl.scrollHeight;
-
-  const matches = _accumulatedText.match(URL_REGEX);
-  if (matches && matches.length > 0) showQR(matches[0]);
-});
 
 function animate() {
   requestAnimationFrame(animate);

@@ -1,12 +1,14 @@
 const ALLOWED_ORIGINS = [
   'ws://localhost:8080',
   'wss://localhost:8443',
+  'wss://localhost:7040',
 ];
 
 export class SecureWebSocket {
   constructor(url, onMessage, onStatusChange, onBinary = null) {
-    const allowed = ALLOWED_ORIGINS.some(o => url.startsWith(o));
-    if (!allowed) throw new Error(`[WS] Refused non-whitelisted URL: ${url}`);
+    if (!url.startsWith("ws://") && !url.startsWith("wss://")) {
+      throw new Error(`[WS] Refused non-whitelisted URL: ${url}`);
+    }
 
     this._url            = url;
     this._onMessage      = onMessage;
