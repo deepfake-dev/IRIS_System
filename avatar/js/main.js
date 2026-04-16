@@ -26,6 +26,13 @@ new ResizeObserver(resizeRenderer).observe(col);
 const vrmCtrl  = new VRMController(scene);
 const animCtrl = new AnimationController(vrmCtrl);
 
+const ANIMATION_FILES = {
+  idle:      ['./animations/idle1.fbx', './animations/idle2.fbx', './animations/idle3.fbx'],
+  talking:   ['./animations/talk1.fbx', './animations/talk2.fbx'],
+  listening: ['./animations/listen1.fbx'],
+  thinking:  ['./animations/think1.fbx']
+};
+
 function applyDefaultPose(gender) {
   if (gender === 'female') {
     // Female: Relaxed A-pose
@@ -42,8 +49,15 @@ function applyDefaultPose(gender) {
 vrmCtrl.load('./bsu_girl.vrm')
   .then(async vrm => {
     applyDefaultPose('female');
-    animCtrl.setGender('female');
-    animCtrl.init(); // Build mixer + clips from the freshly loaded VRM
+    
+    // Wipe memory and load FBX files for this specific skeleton
+    animCtrl.clearCache();
+    await Promise.all([
+      animCtrl.loadStateAnimations('idle', ANIMATION_FILES.idle),
+      animCtrl.loadStateAnimations('talking', ANIMATION_FILES.talking),
+      animCtrl.loadStateAnimations('listening', ANIMATION_FILES.listening),
+      animCtrl.loadStateAnimations('thinking', ANIMATION_FILES.thinking)
+    ]);
 
     loading.style.display = 'none';
     animCtrl.playState('idle'); // Start breathing immediately!
@@ -75,13 +89,17 @@ window.switchVRMModel = function(gender) {
     ws.send({ command: 'set_voice', gender: gender });
   }
 
-  animCtrl.clearCache(); // Wipe old mixer BEFORE loading the new model
-
   vrmCtrl.load(url)
     .then(async vrm => {
       applyDefaultPose(gender);
-      animCtrl.setGender(gender);
-      animCtrl.init(); // Build mixer + clips from the newly loaded VRM
+
+      animCtrl.clearCache();
+      await Promise.all([
+        animCtrl.loadStateAnimations('idle', ANIMATION_FILES.idle),
+        animCtrl.loadStateAnimations('talking', ANIMATION_FILES.talking),
+        animCtrl.loadStateAnimations('listening', ANIMATION_FILES.listening),
+        animCtrl.loadStateAnimations('thinking', ANIMATION_FILES.thinking)
+      ]);
 
       loading.style.display = 'none';
       animCtrl.playState('idle');
